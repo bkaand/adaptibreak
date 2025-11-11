@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Study session data (participant privacy)
+study_sessions/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Jupyter
+.ipynb_checkpoints
+
+# Data files (keep template, ignore sessions)
+*.csv
+*.json.bak
+
+# Logs
+*.log
+
+# Distribution
+build/
+dist/
+*.egg-info/
+

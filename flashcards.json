@@ -1,0 +1,353 @@
+[
+  {
+    "id": 1,
+    "word": "Ephemeral",
+    "definition": "Lasting for a very short time; transitory",
+    "example": "The beauty of cherry blossoms is ephemeral, lasting only a few weeks.",
+    "category": "adjective"
+  },
+  {
+    "id": 2,
+    "word": "Ubiquitous",
+    "definition": "Present, appearing, or found everywhere",
+    "example": "Smartphones have become ubiquitous in modern society.",
+    "category": "adjective"
+  },
+  {
+    "id": 3,
+    "word": "Ameliorate",
+    "definition": "To make something better or more tolerable",
+    "example": "The new policies helped ameliorate working conditions.",
+    "category": "verb"
+  },
+  {
+    "id": 4,
+    "word": "Pragmatic",
+    "definition": "Dealing with things sensibly and realistically",
+    "example": "She took a pragmatic approach to solving the budget crisis.",
+    "category": "adjective"
+  },
+  {
+    "id": 5,
+    "word": "Ambiguous",
+    "definition": "Open to more than one interpretation; unclear",
+    "example": "His ambiguous statement left everyone confused.",
+    "category": "adjective"
+  },
+  {
+    "id": 6,
+    "word": "Eloquent",
+    "definition": "Fluent or persuasive in speaking or writing",
+    "example": "The speaker gave an eloquent presentation on climate change.",
+    "category": "adjective"
+  },
+  {
+    "id": 7,
+    "word": "Meticulous",
+    "definition": "Showing great attention to detail; very careful",
+    "example": "She is meticulous in her research methodology.",
+    "category": "adjective"
+  },
+  {
+    "id": 8,
+    "word": "Obsolete",
+    "definition": "No longer produced or used; out of date",
+    "example": "Floppy disks are now obsolete technology.",
+    "category": "adjective"
+  },
+  {
+    "id": 9,
+    "word": "Resilient",
+    "definition": "Able to recover quickly from difficulties",
+    "example": "The community proved resilient after the natural disaster.",
+    "category": "adjective"
+  },
+  {
+    "id": 10,
+    "word": "Paradox",
+    "definition": "A seemingly contradictory statement that may be true",
+    "example": "The paradox of choice suggests more options can reduce satisfaction.",
+    "category": "noun"
+  },
+  {
+    "id": 11,
+    "word": "Proliferate",
+    "definition": "To increase rapidly in number; multiply",
+    "example": "Social media platforms have proliferated in recent years.",
+    "category": "verb"
+  },
+  {
+    "id": 12,
+    "word": "Alleviate",
+    "definition": "To make suffering or a problem less severe",
+    "example": "The medication helped alleviate her pain.",
+    "category": "verb"
+  },
+  {
+    "id": 13,
+    "word": "Concurrent",
+    "definition": "Existing or happening at the same time",
+    "example": "She managed two concurrent projects successfully.",
+    "category": "adjective"
+  },
+  {
+    "id": 14,
+    "word": "Diligent",
+    "definition": "Having or showing care in one's work or duties",
+    "example": "He was a diligent student who always completed assignments early.",
+    "category": "adjective"
+  },
+  {
+    "id": 15,
+    "word": "Redundant",
+    "definition": "Not needed because similar already exists; superfluous",
+    "example": "The new feature made the old system redundant.",
+    "category": "adjective"
+  },
+  {
+    "id": 16,
+    "word": "Articulate",
+    "definition": "To express an idea or feeling clearly",
+    "example": "He articulated his concerns about the project timeline.",
+    "category": "verb"
+  },
+  {
+    "id": 17,
+    "word": "Feasible",
+    "definition": "Possible to do easily or conveniently",
+    "example": "The team determined that the plan was feasible within budget.",
+    "category": "adjective"
+  },
+  {
+    "id": 18,
+    "word": "Empirical",
+    "definition": "Based on observation or experience rather than theory",
+    "example": "The study provided empirical evidence for the hypothesis.",
+    "category": "adjective"
+  },
+  {
+    "id": 19,
+    "word": "Innovative",
+    "definition": "Featuring new methods; advanced and original",
+    "example": "The company is known for its innovative products.",
+    "category": "adjective"
+  },
+  {
+    "id": 20,
+    "word": "Mitigate",
+    "definition": "To make less severe, serious, or painful",
+    "example": "Measures were taken to mitigate the environmental impact.",
+    "category": "verb"
+  },
+  {
+    "id": 21,
+    "word": "Versatile",
+    "definition": "Able to adapt to many different functions or activities",
+    "example": "She is a versatile actress who excels in various roles.",
+    "category": "adjective"
+  },
+  {
+    "id": 22,
+    "word": "Substantiate",
+    "definition": "To provide evidence to support or prove the truth of",
+    "example": "The witness testimony helped substantiate his alibi.",
+    "category": "verb"
+  },
+  {
+    "id": 23,
+    "word": "Ambivalent",
+    "definition": "Having mixed feelings or contradictory ideas about something",
+    "example": "She felt ambivalent about accepting the job offer.",
+    "category": "adjective"
+  },
+  {
+    "id": 24,
+    "word": "Comprehensive",
+    "definition": "Complete and including everything that is necessary",
+    "example": "The report provided a comprehensive overview of the issue.",
+    "category": "adjective"
+  },
+  {
+    "id": 25,
+    "word": "Aesthetic",
+    "definition": "Concerned with beauty or the appreciation of beauty",
+    "example": "The building's aesthetic appeal attracted many visitors.",
+    "category": "adjective"
+  },
+  {
+    "id": 26,
+    "word": "Coherent",
+    "definition": "Logical and consistent; easy to understand",
+    "example": "She presented a coherent argument for policy change.",
+    "category": "adjective"
+  },
+  {
+    "id": 27,
+    "word": "Aggregate",
+    "definition": "To combine several elements into a whole",
+    "example": "The system aggregates data from multiple sources.",
+    "category": "verb"
+  },
+  {
+    "id": 28,
+    "word": "Intrinsic",
+    "definition": "Belonging naturally; essential",
+    "example": "Curiosity is intrinsic to human nature.",
+    "category": "adjective"
+  },
+  {
+    "id": 29,
+    "word": "Facilitate",
+    "definition": "To make an action or process easier",
+    "example": "Technology can facilitate communication across distances.",
+    "category": "verb"
+  },
+  {
+    "id": 30,
+    "word": "Arbitrary",
+    "definition": "Based on random choice rather than reason or system",
+    "example": "The decision seemed arbitrary and lacked justification.",
+    "category": "adjective"
+  },
+  {
+    "id": 31,
+    "word": "Catalyst",
+    "definition": "Something that causes change or action",
+    "example": "The scandal was a catalyst for political reform.",
+    "category": "noun"
+  },
+  {
+    "id": 32,
+    "word": "Synthesis",
+    "definition": "The combination of components to form a connected whole",
+    "example": "The essay was a synthesis of various research findings.",
+    "category": "noun"
+  },
+  {
+    "id": 33,
+    "word": "Temporal",
+    "definition": "Relating to time or existing within time",
+    "example": "The study examined temporal patterns in behavior.",
+    "category": "adjective"
+  },
+  {
+    "id": 34,
+    "word": "Subsequent",
+    "definition": "Coming after something in time; following",
+    "example": "Subsequent research confirmed the initial findings.",
+    "category": "adjective"
+  },
+  {
+    "id": 35,
+    "word": "Inherent",
+    "definition": "Existing as a natural or permanent part of something",
+    "example": "There are inherent risks in any new venture.",
+    "category": "adjective"
+  },
+  {
+    "id": 36,
+    "word": "Precedent",
+    "definition": "An earlier event or action serving as an example",
+    "example": "The court decision set an important legal precedent.",
+    "category": "noun"
+  },
+  {
+    "id": 37,
+    "word": "Cognitive",
+    "definition": "Related to conscious mental activities",
+    "example": "The study examined cognitive development in children.",
+    "category": "adjective"
+  },
+  {
+    "id": 38,
+    "word": "Hypothesis",
+    "definition": "A proposed explanation made on limited evidence",
+    "example": "The scientists tested their hypothesis through experiments.",
+    "category": "noun"
+  },
+  {
+    "id": 39,
+    "word": "Methodology",
+    "definition": "A system of methods used in a particular activity",
+    "example": "The research methodology was clearly documented.",
+    "category": "noun"
+  },
+  {
+    "id": 40,
+    "word": "Paradigm",
+    "definition": "A typical example or pattern of something",
+    "example": "The discovery caused a paradigm shift in physics.",
+    "category": "noun"
+  },
+  {
+    "id": 41,
+    "word": "Inference",
+    "definition": "A conclusion reached based on evidence and reasoning",
+    "example": "The detective made an inference from the evidence.",
+    "category": "noun"
+  },
+  {
+    "id": 42,
+    "word": "Validate",
+    "definition": "To check or prove the validity or accuracy of something",
+    "example": "The results helped validate the theoretical model.",
+    "category": "verb"
+  },
+  {
+    "id": 43,
+    "word": "Quantitative",
+    "definition": "Relating to or measured by the quantity of something",
+    "example": "The study used quantitative methods for data analysis.",
+    "category": "adjective"
+  },
+  {
+    "id": 44,
+    "word": "Qualitative",
+    "definition": "Relating to or measuring quality rather than quantity",
+    "example": "Qualitative research explores attitudes and behaviors.",
+    "category": "adjective"
+  },
+  {
+    "id": 45,
+    "word": "Correlation",
+    "definition": "A mutual relationship between two or more things",
+    "example": "The study found a correlation between exercise and health.",
+    "category": "noun"
+  },
+  {
+    "id": 46,
+    "word": "Variable",
+    "definition": "An element that may change or vary",
+    "example": "Temperature was a key variable in the experiment.",
+    "category": "noun"
+  },
+  {
+    "id": 47,
+    "word": "Objective",
+    "definition": "Not influenced by personal feelings; based on facts",
+    "example": "The journalist maintained an objective perspective.",
+    "category": "adjective"
+  },
+  {
+    "id": 48,
+    "word": "Subjective",
+    "definition": "Based on personal opinions or feelings",
+    "example": "Beauty is often considered subjective.",
+    "category": "adjective"
+  },
+  {
+    "id": 49,
+    "word": "Implication",
+    "definition": "A conclusion that can be drawn from something",
+    "example": "The findings have important implications for policy.",
+    "category": "noun"
+  },
+  {
+    "id": 50,
+    "word": "Context",
+    "definition": "The circumstances that form the setting for an event",
+    "example": "Understanding the historical context is crucial.",
+    "category": "noun"
+  }
+]
+
