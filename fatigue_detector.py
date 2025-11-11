@@ -13,8 +13,8 @@ import config
 
 class FatigueDetector:
     """
-    Real-time fatigue detector using webcam and MediaPipe Face Mesh.
-    Tracks blink frequency, yawning, and head posture to estimate fatigue levels.
+    Real-time fatigue detector using webcam and MediaPipe Face Mesh + Hands.
+    Tracks blink frequency, yawning, head posture, and hand positions to estimate fatigue levels.
     """
     
     def __init__(self):
@@ -26,6 +26,18 @@ class FatigueDetector:
             min_tracking_confidence=config.MIN_TRACKING_CONFIDENCE
         )
         self.mp_drawing = mp.solutions.drawing_utils
+        
+        # Initialize MediaPipe Hands
+        if config.DETECT_HANDS:
+            self.mp_hands = mp.solutions.hands
+            self.hands = self.mp_hands.Hands(
+                max_num_hands=config.MAX_NUM_HANDS,
+                min_detection_confidence=config.MIN_HAND_DETECTION_CONFIDENCE,
+                min_tracking_confidence=config.MIN_HAND_TRACKING_CONFIDENCE
+            )
+        else:
+            self.mp_hands = None
+            self.hands = None
         
         # Blink detection state
         self.blink_counter = 0
@@ -40,6 +52,13 @@ class FatigueDetector:
         # Head pose history
         self.head_tilt_history = deque(maxlen=30)
         self.head_forward_history = deque(maxlen=30)
+        
+        # Hand position tracking
+        self.hand_near_face_counter = 0
+        self.hand_near_face_timestamps = deque(maxlen=50)
+        self.hand_covering_face_counter = 0
+        self.fidget_counter = 0
+        self.prev_hand_positions = None
         
         # Fatigue scoring
         self.fatigue_scores = deque(maxlen=60)  # Store last 60 seconds of scores
@@ -144,6 +163,83 @@ class FatigueDetector:
         
         return len(recent_yawns)
     
+    def detect_hand_positions(self, hand_landmarks, face_landmarks, frame_shape):
+        """
+        Detect fatigue-indicating hand positions:
+        - Hands near face (head resting on hands)
+        - Hands covering face (eye rubbing)
+        - Hand fidgeting
+        
+        Returns dict with hand position indicators.
+        """
+        h, w = frame_shape[:2]
+        
+        hand_indicators = {
+            'hands_near_face': False,
+            'hands_covering_face': False,
+            'fidgeting': False,
+            'num_hands': 0
+        }
+        
+        if not hand_landmarks or len(hand_landmarks) == 0:
+            return hand_indicators
+        
+        hand_indicators['num_hands'] = len(hand_landmarks)
+        
+        # Get face center position (nose tip)
+        face_center = face_landmarks[config.NOSE_TIP_INDEX]
+        face_x, face_y = face_center.x, face_center.y
+        
+        # Get face bounds for proximity detection
+        face_top_y = min([face_landmarks[i].y for i in [10, 151, 9, 8]])
+        face_bottom_y = max([face_landmarks[i].y for i in [152, 200, 175]])
+        face_left_x = min([face_landmarks[i].x for i in [234, 127, 162]])
+        face_right_x = max([face_landmarks[i].x for i in [454, 356, 389]])
+        
+        current_hand_positions = []
+        
+        for hand in hand_landmarks:
+            # Get wrist and fingertip positions
+            wrist = hand.landmark[0]
+            index_tip = hand.landmark[8]
+            middle_tip = hand.landmark[12]
+            
+            # Average hand position
+            hand_x = (wrist.x + index_tip.x + middle_tip.x) / 3
+            hand_y = (wrist.y + index_tip.y + middle_tip.y) / 3
+            
+            current_hand_positions.append((hand_x, hand_y))
+            
+            # Check if hand is near face
+            dist_to_face = np.sqrt((hand_x - face_x)**2 + (hand_y - face_y)**2)
+            
+            if dist_to_face < config.HAND_NEAR_FACE_THRESHOLD:
+                hand_indicators['hands_near_face'] = True
+                
+                # Check if very close (covering face)
+                if dist_to_face < config.HAND_COVERING_FACE_THRESHOLD:
+                    hand_indicators['hands_covering_face'] = True
+            
+            # Check if hand is in face region (even if not super close to nose)
+            if (face_left_x - 0.1 < hand_x < face_right_x + 0.1 and
+                face_top_y - 0.1 < hand_y < face_bottom_y + 0.1):
+                hand_indicators['hands_near_face'] = True
+        
+        # Detect fidgeting (hand movement between frames)
+        if self.prev_hand_positions and len(self.prev_hand_positions) == len(current_hand_positions):
+            total_movement = 0
+            for prev_pos, curr_pos in zip(self.prev_hand_positions, current_hand_positions):
+                movement = np.sqrt((curr_pos[0] - prev_pos[0])**2 + (curr_pos[1] - prev_pos[1])**2)
+                total_movement += movement
+            
+            avg_movement = total_movement / len(current_hand_positions)
+            if avg_movement > config.FIDGET_MOVEMENT_THRESHOLD:
+                hand_indicators['fidgeting'] = True
+        
+        self.prev_hand_positions = current_hand_positions
+        
+        return hand_indicators
+    
     def calculate_fatigue_score(self):
         """
         Calculate overall fatigue score (0 to 1) based on multiple indicators.
@@ -178,11 +274,23 @@ class FatigueDetector:
         else:
             head_pose_score = 0
         
+        # Hand position score
+        hand_score = 0.0
+        if config.DETECT_HANDS and len(self.hand_near_face_timestamps) > 0:
+            # Hand near face frequency (over last 30 seconds)
+            current_time = time.time()
+            recent_hand_near_face = [t for t in self.hand_near_face_timestamps if current_time - t <= 30]
+            hand_near_face_rate = len(recent_hand_near_face) / 30.0  # Frequency
+            
+            # Score increases with frequency of hand-near-face events
+            hand_score = min(hand_near_face_rate * 2.0, 1.0)  # 0.5+ rate = max score
+        
         # Weighted combination
         fatigue_score = (
             config.WEIGHT_BLINK * blink_score +
             config.WEIGHT_YAWN * yawn_score +
-            config.WEIGHT_HEAD_POSE * head_pose_score
+            config.WEIGHT_HEAD_POSE * head_pose_score +
+            config.WEIGHT_HAND_POSITION * hand_score
         )
         
         return np.clip(fatigue_score, 0, 1)
@@ -224,6 +332,11 @@ class FatigueDetector:
                     if np.mean(list(self.head_forward_history)) > config.HEAD_FORWARD_THRESHOLD:
                         reasons.append("forward posture")
                 
+                if config.DETECT_HANDS and len(self.hand_near_face_timestamps) > 0:
+                    recent_hand_events = [t for t in self.hand_near_face_timestamps if current_time - t <= 30]
+                    if len(recent_hand_events) >= 10:  # 10+ events in 30 seconds
+                        reasons.append("hands near face")
+                
                 reason = " and ".join(reasons) if reasons else "fatigue indicators"
                 
                 self.last_break_suggestion_time = current_time
@@ -252,7 +365,11 @@ class FatigueDetector:
             'ear': 0,
             'mar': 0,
             'head_tilt': 0,
-            'head_forward': 0
+            'head_forward': 0,
+            'hands_detected': 0,
+            'hands_near_face': False,
+            'hands_covering_face': False,
+            'fidgeting': False
         }
         
         if results.multi_face_landmarks:
@@ -330,6 +447,48 @@ class FatigueDetector:
             metrics['head_tilt'] = tilt
             metrics['head_forward'] = forward
             
+            # === HAND POSITION DETECTION ===
+            if config.DETECT_HANDS and self.hands:
+                hand_results = self.hands.process(rgb_frame)
+                
+                if hand_results.multi_hand_landmarks:
+                    hand_indicators = self.detect_hand_positions(
+                        hand_results.multi_hand_landmarks,
+                        landmarks,
+                        frame.shape
+                    )
+                    
+                    metrics['hands_detected'] = hand_indicators['num_hands']
+                    metrics['hands_near_face'] = hand_indicators['hands_near_face']
+                    metrics['hands_covering_face'] = hand_indicators['hands_covering_face']
+                    metrics['fidgeting'] = hand_indicators['fidgeting']
+                    
+                    # Update counters
+                    if hand_indicators['hands_near_face']:
+                        self.hand_near_face_counter += 1
+                        self.hand_near_face_timestamps.append(time.time())
+                    
+                    if hand_indicators['hands_covering_face']:
+                        self.hand_covering_face_counter += 1
+                    
+                    if hand_indicators['fidgeting']:
+                        self.fidget_counter += 1
+                    
+                    # Draw hand landmarks
+                    if draw_landmarks:
+                        for hand_landmarks in hand_results.multi_hand_landmarks:
+                            self.mp_drawing.draw_landmarks(
+                                frame,
+                                hand_landmarks,
+                                self.mp_hands.HAND_CONNECTIONS,
+                                landmark_drawing_spec=self.mp_drawing.DrawingSpec(
+                                    color=(255, 0, 255), thickness=2, circle_radius=2
+                                ),
+                                connection_drawing_spec=self.mp_drawing.DrawingSpec(
+                                    color=(255, 0, 255), thickness=2
+                                )
+                            )
+            
             # === FATIGUE CALCULATION ===
             metrics['blink_rate'] = self.get_blink_rate()
             metrics['fatigue_score'] = self.calculate_fatigue_score()
@@ -353,21 +512,35 @@ class FatigueDetector:
         self.yawn_timestamps.clear()
         self.head_tilt_history.clear()
         self.head_forward_history.clear()
+        self.hand_near_face_counter = 0
+        self.hand_near_face_timestamps.clear()
+        self.hand_covering_face_counter = 0
+        self.fidget_counter = 0
+        self.prev_hand_positions = None
         self.fatigue_scores.clear()
         self.last_break_suggestion_time = 0
     
     def get_summary_stats(self):
         """Get summary statistics for the session."""
-        return {
+        stats = {
             'total_blinks': self.blink_counter,
             'total_yawns': self.yawn_counter,
             'avg_blink_rate': self.get_blink_rate(),
             'avg_fatigue_score': np.mean(list(self.fatigue_scores)) if self.fatigue_scores else 0,
             'max_fatigue_score': np.max(list(self.fatigue_scores)) if self.fatigue_scores else 0
         }
+        
+        if config.DETECT_HANDS:
+            stats['hand_near_face_events'] = self.hand_near_face_counter
+            stats['hand_covering_face_events'] = self.hand_covering_face_counter
+            stats['fidget_events'] = self.fidget_counter
+        
+        return stats
     
     def __del__(self):
         """Cleanup resources."""
         if hasattr(self, 'face_mesh'):
             self.face_mesh.close()
+        if hasattr(self, 'hands') and self.hands:
+            self.hands.close()
 

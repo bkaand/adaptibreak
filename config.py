@@ -36,12 +36,30 @@ YAWN_CONSEC_FRAMES = 40  # Frames to confirm yawn (~1.3 seconds at 30fps - must 
 HEAD_TILT_THRESHOLD = 15  # Side tilt indicating fatigue
 HEAD_FORWARD_THRESHOLD = 20  # Forward lean indicating fatigue
 
+# ==================== HAND POSITION DETECTION ====================
+
+# Hand detection settings
+DETECT_HANDS = True  # Enable/disable hand tracking
+MAX_NUM_HANDS = 2  # Track both hands
+MIN_HAND_DETECTION_CONFIDENCE = 0.7
+MIN_HAND_TRACKING_CONFIDENCE = 0.5
+
+# Hand-face proximity (indicates head resting on hands)
+HAND_NEAR_FACE_THRESHOLD = 0.15  # Distance threshold (normalized coordinates)
+
+# Hand covering face (eye rubbing, face touching)
+HAND_COVERING_FACE_THRESHOLD = 0.12  # Closer proximity
+
+# Fidgeting detection (hand movement)
+FIDGET_MOVEMENT_THRESHOLD = 0.05  # Movement between frames to count as fidgeting
+
 # ==================== FATIGUE SCORING ====================
 
-# Fatigue score calculation weights
-WEIGHT_BLINK = 0.3
-WEIGHT_YAWN = 0.4
-WEIGHT_HEAD_POSE = 0.3
+# Fatigue score calculation weights (adjusted for hand detection)
+WEIGHT_BLINK = 0.25
+WEIGHT_YAWN = 0.30
+WEIGHT_HEAD_POSE = 0.25
+WEIGHT_HAND_POSITION = 0.20  # New: hands near face/fidgeting
 
 # Fatigue threshold for break suggestion
 FATIGUE_SCORE_THRESHOLD = 0.6  # 0 to 1 scale

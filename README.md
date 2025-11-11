@@ -8,6 +8,7 @@ AdaptiBreak is an intelligent study break system that uses webcam-based biometri
 
 - 🎥 **Webcam-based Fatigue Detection**: Uses MediaPipe for facial landmark tracking
 - 😴 **Biometric Indicators**: Monitors blink frequency, yawning, and head posture
+- 👋 **Hand Position Detection**: Tracks hand-to-face behaviors (NEW!)
 - 🧠 **Adaptive Break Suggestions**: Intelligent break timing based on detected fatigue
 - ⏱️ **Pomodoro Comparison**: Includes traditional fixed-timer mode for research comparison
 - 📚 **Integrated Study Interface**: Flashcard-based learning with vocabulary testing
@@ -80,6 +81,7 @@ Webcam Input → MediaPipe Face Detection → Feature Extraction
 - **Blink Frequency**: Abnormal blink rates (too fast or too slow)
 - **Yawning**: Detected through mouth aspect ratio changes
 - **Head Posture**: Forward lean or tilting indicating fatigue
+- **Hand Position**: Head resting on hands, face touching, fidgeting ✨ NEW!
 
 ## Project Structure
 

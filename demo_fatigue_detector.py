@@ -96,6 +96,21 @@ def main():
                            (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
                 y_offset += line_height
+                # Hand position indicators
+                if config.DETECT_HANDS:
+                    hand_text = f"Hands: {metrics['hands_detected']}"
+                    if metrics['hands_near_face']:
+                        hand_text += " [NEAR FACE]"
+                    if metrics['hands_covering_face']:
+                        hand_text += " [COVERING]"
+                    if metrics['fidgeting']:
+                        hand_text += " [FIDGETING]"
+                    
+                    hand_color = (0, 165, 255) if metrics['hands_near_face'] else (255, 255, 255)
+                    cv2.putText(display_frame, hand_text, 
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, hand_color, 2)
+                    y_offset += line_height
+                
                 fatigue_score = metrics['fatigue_score']
                 color = (0, 255, 0) if fatigue_score < 0.4 else (0, 165, 255) if fatigue_score < 0.6 else (0, 0, 255)
                 cv2.putText(display_frame, f"Fatigue: {fatigue_score:.2f}", 
