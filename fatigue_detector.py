@@ -1,6 +1,6 @@
 """
-Fatigue Detection Module using MediaPipe Face Mesh.
-Detects blinks, yawns, and head pose to estimate user fatigue in real-time.
+Fatigue Detection Module using MediaPipe Face Mesh, Hands, and Pose.
+Detects blinks, yawns, head pose, hand positions, shoulder posture, and drinking behavior to estimate user fatigue in real-time.
 """
 
 import cv2
@@ -9,12 +9,13 @@ import numpy as np
 from collections import deque
 import time
 import config
+import os
 
 
 class FatigueDetector:
     """
-    Real-time fatigue detector using webcam and MediaPipe Face Mesh + Hands.
-    Tracks blink frequency, yawning, head posture, and hand positions to estimate fatigue levels.
+    Real-time fatigue detector using webcam and MediaPipe Face Mesh + Hands + Pose.
+    Tracks blink frequency, yawning, head posture, hand positions, and shoulder posture to estimate fatigue levels.
     """
     
     def __init__(self):
@@ -39,6 +40,18 @@ class FatigueDetector:
             self.mp_hands = None
             self.hands = None
         
+        # Initialize MediaPipe Pose
+        if config.DETECT_SHOULDERS:
+            self.mp_pose = mp.solutions.pose
+            self.pose = self.mp_pose.Pose(
+                min_detection_confidence=config.MIN_POSE_DETECTION_CONFIDENCE,
+                min_tracking_confidence=config.MIN_POSE_TRACKING_CONFIDENCE,
+                model_complexity=1  # Balance between accuracy and speed
+            )
+        else:
+            self.mp_pose = None
+            self.pose = None
+        
         # Blink detection state
         self.blink_counter = 0
         self.blink_frames = 0
@@ -60,6 +73,33 @@ class FatigueDetector:
         self.fidget_counter = 0
         self.prev_hand_positions = None
         
+        # Shoulder posture tracking
+        self.shoulder_tilt_history = deque(maxlen=30)
+        self.shoulder_forward_history = deque(maxlen=30)
+        self.shoulder_raise_history = deque(maxlen=30)
+        self.baseline_shoulder_height = None  # Established during first few frames
+        self.poor_posture_counter = 0
+        self.poor_posture_timestamps = deque(maxlen=50)
+        
+        # Drinking behavior tracking
+        self.drinking_counter = 0
+        self.drinking_timestamps = deque(maxlen=100)
+        self.hand_to_mouth_counter = 0
+        self.hand_to_mouth_timestamps = deque(maxlen=100)
+        self.drinking_in_progress = False
+        self.drinking_start_time = None
+        self.last_drinking_end_time = 0
+        
+        # Object detection for drinkware (optional, using simple hand-mouth gesture as proxy)
+        self.object_detector = None
+        if config.DETECT_DRINKING:
+            # Try to load object detection model (optional)
+            try:
+                self._init_object_detector()
+            except Exception as e:
+                print(f"Note: Object detection not available, using gesture-based drinking detection: {e}")
+                self.object_detector = None
+        
         # Fatigue scoring
         self.fatigue_scores = deque(maxlen=60)  # Store last 60 seconds of scores
         self.last_break_suggestion_time = 0
@@ -69,6 +109,21 @@ class FatigueDetector:
         self.last_fps_time = time.time()
         self.fps = 0
         
+    def _init_object_detector(self):
+        """
+        Initialize object detection model for drinkware detection.
+        Uses MobileNet-SSD with COCO dataset (optional feature).
+        """
+        # This is optional - if model files are not available, we'll use gesture-based detection
+        model_path = 'models/MobileNetSSD_deploy.caffemodel'
+        config_path = 'models/MobileNetSSD_deploy.prototxt'
+        
+        if os.path.exists(model_path) and os.path.exists(config_path):
+            self.object_detector = cv2.dnn.readNetFromCaffe(config_path, model_path)
+            print("✓ Object detection model loaded successfully")
+        else:
+            raise FileNotFoundError("Object detection model files not found")
+    
     def calculate_eye_aspect_ratio(self, eye_landmarks):
         """
         Calculate Eye Aspect Ratio (EAR) for blink detection.
@@ -240,6 +295,221 @@ class FatigueDetector:
         
         return hand_indicators
     
+    def detect_shoulder_posture(self, pose_landmarks):
+        """
+        Detect fatigue-indicating shoulder posture:
+        - Shoulder tilt (uneven shoulders)
+        - Shoulder forward position (hunching/slouching)
+        - Shoulder raise (tension/stress)
+        
+        Returns dict with shoulder posture indicators.
+        """
+        shoulder_indicators = {
+            'shoulders_tilted': False,
+            'shoulders_forward': False,
+            'shoulders_raised': False,
+            'shoulder_tilt_angle': 0,
+            'shoulder_forward_distance': 0,
+            'shoulder_raise_amount': 0,
+            'poor_posture': False
+        }
+        
+        if not pose_landmarks:
+            return shoulder_indicators
+        
+        # Get shoulder landmarks (MediaPipe Pose indices)
+        left_shoulder = pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
+        right_shoulder = pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+        
+        # Also get hip landmarks for forward lean calculation
+        left_hip = pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_HIP]
+        right_hip = pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_HIP]
+        
+        # === SHOULDER TILT DETECTION ===
+        # Calculate angle between shoulders (side-to-side tilt)
+        shoulder_slope = (right_shoulder.y - left_shoulder.y) / (right_shoulder.x - left_shoulder.x + 1e-6)
+        tilt_angle = abs(np.degrees(np.arctan(shoulder_slope)))
+        shoulder_indicators['shoulder_tilt_angle'] = tilt_angle
+        
+        if tilt_angle > config.SHOULDER_TILT_THRESHOLD:
+            shoulder_indicators['shoulders_tilted'] = True
+        
+        # === SHOULDER FORWARD POSITION (HUNCHING) ===
+        # Calculate if shoulders are forward relative to hips (z-axis)
+        # In MediaPipe, lower z value means closer to camera (more forward)
+        avg_shoulder_z = (left_shoulder.z + right_shoulder.z) / 2
+        avg_hip_z = (left_hip.z + right_hip.z) / 2
+        
+        # Forward distance (negative means shoulders are behind hips, positive means forward)
+        forward_distance = avg_hip_z - avg_shoulder_z
+        shoulder_indicators['shoulder_forward_distance'] = forward_distance
+        
+        if forward_distance > config.SHOULDER_FORWARD_THRESHOLD:
+            shoulder_indicators['shoulders_forward'] = True
+        
+        # === SHOULDER RAISE DETECTION (TENSION) ===
+        # Compare current shoulder height to baseline
+        avg_shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
+        
+        # Establish baseline (average of first 30 frames with good detection)
+        if self.baseline_shoulder_height is None:
+            if len(self.shoulder_raise_history) >= 30:
+                self.baseline_shoulder_height = np.mean(list(self.shoulder_raise_history))
+        else:
+            # Lower y value means higher position (y increases downward)
+            raise_amount = self.baseline_shoulder_height - avg_shoulder_y
+            shoulder_indicators['shoulder_raise_amount'] = raise_amount
+            
+            if raise_amount > config.SHOULDER_RAISE_THRESHOLD:
+                shoulder_indicators['shoulders_raised'] = True
+        
+        # Store shoulder height for baseline calculation
+        self.shoulder_raise_history.append(avg_shoulder_y)
+        
+        # === OVERALL POOR POSTURE ===
+        # Poor posture if any indicator is triggered
+        if (shoulder_indicators['shoulders_tilted'] or 
+            shoulder_indicators['shoulders_forward'] or 
+            shoulder_indicators['shoulders_raised']):
+            shoulder_indicators['poor_posture'] = True
+        
+        return shoulder_indicators
+    
+    def detect_drinking_behavior(self, hand_landmarks, face_landmarks, frame_shape, frame=None):
+        """
+        Detect drinking behavior using hand-to-mouth gestures and optional object detection.
+        
+        Method 1 (Primary): Hand-to-mouth gesture detection
+        - Tracks when hand moves to mouth area
+        - Measures duration of gesture
+        - Differentiates from face-touching (longer duration, specific pattern)
+        
+        Method 2 (Optional): Object detection for cups/mugs
+        - Detects drinkware in frame
+        - Confirms drinking when object near mouth
+        
+        Returns dict with drinking indicators.
+        """
+        drinking_indicators = {
+            'hand_to_mouth': False,
+            'drinkware_detected': False,
+            'drinking_gesture': False,
+            'drinking_in_progress': False,
+            'drinkware_objects': []
+        }
+        
+        current_time = time.time()
+        
+        # === METHOD 1: HAND-TO-MOUTH GESTURE DETECTION ===
+        if hand_landmarks and face_landmarks and len(hand_landmarks) > 0:
+            h, w = frame_shape[:2]
+            
+            # Get mouth position (nose tip as proxy)
+            mouth = face_landmarks[config.NOSE_TIP_INDEX]
+            mouth_x, mouth_y = mouth.x, mouth.y
+            
+            # Check each hand
+            for hand in hand_landmarks:
+                # Get hand center (average of wrist and fingertips)
+                wrist = hand.landmark[0]
+                index_tip = hand.landmark[8]
+                thumb_tip = hand.landmark[4]
+                
+                # Hand center position
+                hand_x = (wrist.x + index_tip.x + thumb_tip.x) / 3
+                hand_y = (wrist.y + index_tip.y + thumb_tip.y) / 3
+                
+                # Check if hand is near mouth (but not too close like face covering)
+                dist_to_mouth = np.sqrt((hand_x - mouth_x)**2 + (hand_y - mouth_y)**2)
+                
+                # Drinking gesture: hand near mouth but not covering it
+                # Distance sweet spot: close enough to drink, not too close (face touching)
+                if 0.08 < dist_to_mouth < config.DRINK_TO_MOUTH_THRESHOLD:
+                    drinking_indicators['hand_to_mouth'] = True
+                    
+                    # Check if this is a sustained gesture (drinking vs quick touch)
+                    if not self.drinking_in_progress:
+                        self.drinking_in_progress = True
+                        self.drinking_start_time = current_time
+                    
+                    break  # Found drinking hand
+            
+            # Check if drinking gesture has ended
+            if self.drinking_in_progress and not drinking_indicators['hand_to_mouth']:
+                drinking_duration = current_time - self.drinking_start_time
+                
+                # Validate as drinking action if duration is reasonable
+                if config.DRINKING_DURATION_MIN <= drinking_duration <= config.DRINKING_DURATION_MAX:
+                    # Avoid counting same drink multiple times (cooldown)
+                    if current_time - self.last_drinking_end_time > 3.0:  # 3 second cooldown
+                        self.drinking_counter += 1
+                        self.drinking_timestamps.append(current_time)
+                        drinking_indicators['drinking_gesture'] = True
+                    
+                    self.last_drinking_end_time = current_time
+                
+                self.drinking_in_progress = False
+                self.drinking_start_time = None
+        
+        # Update current status
+        if self.drinking_in_progress:
+            drinking_indicators['drinking_in_progress'] = True
+        
+        # === METHOD 2: OBJECT DETECTION (OPTIONAL) ===
+        if self.object_detector is not None and frame is not None:
+            # Detect drinkware objects in frame
+            blob = cv2.dnn.blobFromImage(frame, 0.007843, (300, 300), 127.5)
+            self.object_detector.setInput(blob)
+            detections = self.object_detector.forward()
+            
+            h, w = frame.shape[:2]
+            
+            # Process detections
+            for i in range(detections.shape[2]):
+                confidence = detections[0, 0, i, 2]
+                
+                if confidence > config.OBJECT_DETECTION_CONFIDENCE:
+                    class_id = int(detections[0, 0, i, 1])
+                    
+                    # Check if it's drinkware (cup=41, bottle=39 in COCO)
+                    if class_id in config.DRINKWARE_CLASS_IDS:
+                        drinking_indicators['drinkware_detected'] = True
+                        
+                        # Get bounding box
+                        box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                        startX, startY, endX, endY = box.astype("int")
+                        
+                        drinking_indicators['drinkware_objects'].append({
+                            'class_id': class_id,
+                            'confidence': float(confidence),
+                            'bbox': (startX, startY, endX, endY)
+                        })
+        
+        # Track hand-to-mouth frequency (even if not confirmed drinking)
+        if drinking_indicators['hand_to_mouth']:
+            self.hand_to_mouth_counter += 1
+            if len(self.hand_to_mouth_timestamps) == 0 or \
+               current_time - self.hand_to_mouth_timestamps[-1] > 1.0:
+                self.hand_to_mouth_timestamps.append(current_time)
+        
+        return drinking_indicators
+    
+    def get_drinking_rate(self):
+        """Calculate drinks per hour over the last 60 minutes."""
+        if len(self.drinking_timestamps) < 1:
+            return 0
+        
+        current_time = time.time()
+        recent_drinks = [t for t in self.drinking_timestamps if current_time - t <= 3600]  # Last hour
+        
+        if len(recent_drinks) < 1:
+            return 0
+        
+        time_span = current_time - recent_drinks[0]
+        if time_span > 0:
+            return (len(recent_drinks) / time_span) * 3600  # Convert to per hour
+        return 0
+    
     def calculate_fatigue_score(self):
         """
         Calculate overall fatigue score (0 to 1) based on multiple indicators.
@@ -285,12 +555,47 @@ class FatigueDetector:
             # Score increases with frequency of hand-near-face events
             hand_score = min(hand_near_face_rate * 2.0, 1.0)  # 0.5+ rate = max score
         
+        # Shoulder posture score
+        shoulder_score = 0.0
+        if config.DETECT_SHOULDERS:
+            # Score based on shoulder tilt
+            tilt_score = 0
+            if len(self.shoulder_tilt_history) > 0:
+                avg_tilt = np.mean(list(self.shoulder_tilt_history))
+                tilt_score = min(max(avg_tilt - config.SHOULDER_TILT_THRESHOLD, 0) / 15, 1.0)
+            
+            # Score based on forward hunching
+            forward_score = 0
+            if len(self.shoulder_forward_history) > 0:
+                avg_forward = np.mean(list(self.shoulder_forward_history))
+                forward_score = min(max(avg_forward - config.SHOULDER_FORWARD_THRESHOLD, 0) / 0.1, 1.0)
+            
+            # Score based on shoulder tension (raised shoulders)
+            raise_score = 0
+            if len(self.shoulder_raise_history) > 0 and self.baseline_shoulder_height is not None:
+                recent_raises = [r for r in list(self.shoulder_raise_history)[-10:]]
+                if recent_raises:
+                    avg_raise = np.mean([self.baseline_shoulder_height - r for r in recent_raises])
+                    raise_score = min(max(avg_raise - config.SHOULDER_RAISE_THRESHOLD, 0) / 0.05, 1.0)
+            
+            # Poor posture frequency (over last 30 seconds)
+            if len(self.poor_posture_timestamps) > 0:
+                current_time = time.time()
+                recent_poor_posture = [t for t in self.poor_posture_timestamps if current_time - t <= 30]
+                posture_frequency_score = min(len(recent_poor_posture) / 30.0, 1.0)
+                
+                # Combine shoulder metrics
+                shoulder_score = max(tilt_score, forward_score, raise_score, posture_frequency_score * 0.5)
+            else:
+                shoulder_score = max(tilt_score, forward_score, raise_score)
+        
         # Weighted combination
         fatigue_score = (
             config.WEIGHT_BLINK * blink_score +
             config.WEIGHT_YAWN * yawn_score +
             config.WEIGHT_HEAD_POSE * head_pose_score +
-            config.WEIGHT_HAND_POSITION * hand_score
+            config.WEIGHT_HAND_POSITION * hand_score +
+            config.WEIGHT_SHOULDER_POSTURE * shoulder_score
         )
         
         return np.clip(fatigue_score, 0, 1)
@@ -337,6 +642,14 @@ class FatigueDetector:
                     if len(recent_hand_events) >= 10:  # 10+ events in 30 seconds
                         reasons.append("hands near face")
                 
+                if config.DETECT_SHOULDERS and len(self.poor_posture_timestamps) > 0:
+                    recent_posture_events = [t for t in self.poor_posture_timestamps if current_time - t <= 30]
+                    if len(recent_posture_events) >= 15:  # 15+ events in 30 seconds
+                        if len(self.shoulder_forward_history) > 0 and np.mean(list(self.shoulder_forward_history)) > config.SHOULDER_FORWARD_THRESHOLD:
+                            reasons.append("poor posture (slouching)")
+                        else:
+                            reasons.append("poor posture")
+                
                 reason = " and ".join(reasons) if reasons else "fatigue indicators"
                 
                 self.last_break_suggestion_time = current_time
@@ -369,7 +682,20 @@ class FatigueDetector:
             'hands_detected': 0,
             'hands_near_face': False,
             'hands_covering_face': False,
-            'fidgeting': False
+            'fidgeting': False,
+            'shoulders_detected': False,
+            'shoulders_tilted': False,
+            'shoulders_forward': False,
+            'shoulders_raised': False,
+            'poor_posture': False,
+            'shoulder_tilt_angle': 0,
+            'shoulder_forward_distance': 0,
+            'drinking_detected': False,
+            'hand_to_mouth': False,
+            'drinking_in_progress': False,
+            'drinkware_detected': False,
+            'drinking_count': self.drinking_counter,
+            'drinking_rate': 0
         }
         
         if results.multi_face_landmarks:
@@ -488,6 +814,86 @@ class FatigueDetector:
                                     color=(255, 0, 255), thickness=2
                                 )
                             )
+                    
+                    # === DRINKING BEHAVIOR DETECTION ===
+                    if config.DETECT_DRINKING:
+                        drinking_indicators = self.detect_drinking_behavior(
+                            hand_results.multi_hand_landmarks,
+                            landmarks,
+                            frame.shape,
+                            frame if self.object_detector else None
+                        )
+                        
+                        metrics['hand_to_mouth'] = drinking_indicators['hand_to_mouth']
+                        metrics['drinking_in_progress'] = drinking_indicators['drinking_in_progress']
+                        metrics['drinkware_detected'] = drinking_indicators['drinkware_detected']
+                        metrics['drinking_detected'] = drinking_indicators['drinking_gesture']
+                        metrics['drinking_rate'] = self.get_drinking_rate()
+                        
+                        # Draw drinkware bounding boxes if detected
+                        if draw_landmarks and drinking_indicators['drinkware_detected']:
+                            for obj in drinking_indicators['drinkware_objects']:
+                                startX, startY, endX, endY = obj['bbox']
+                                cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)
+                                label = f"Cup: {obj['confidence']:.2f}"
+                                cv2.putText(frame, label, (startX, startY - 10),
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            
+            # === SHOULDER POSTURE DETECTION ===
+            if config.DETECT_SHOULDERS and self.pose:
+                pose_results = self.pose.process(rgb_frame)
+                
+                if pose_results.pose_landmarks:
+                    shoulder_indicators = self.detect_shoulder_posture(pose_results.pose_landmarks)
+                    
+                    metrics['shoulders_detected'] = True
+                    metrics['shoulders_tilted'] = shoulder_indicators['shoulders_tilted']
+                    metrics['shoulders_forward'] = shoulder_indicators['shoulders_forward']
+                    metrics['shoulders_raised'] = shoulder_indicators['shoulders_raised']
+                    metrics['poor_posture'] = shoulder_indicators['poor_posture']
+                    metrics['shoulder_tilt_angle'] = shoulder_indicators['shoulder_tilt_angle']
+                    metrics['shoulder_forward_distance'] = shoulder_indicators['shoulder_forward_distance']
+                    
+                    # Update histories
+                    self.shoulder_tilt_history.append(shoulder_indicators['shoulder_tilt_angle'])
+                    self.shoulder_forward_history.append(shoulder_indicators['shoulder_forward_distance'])
+                    
+                    # Update counters
+                    if shoulder_indicators['poor_posture']:
+                        self.poor_posture_counter += 1
+                        self.poor_posture_timestamps.append(time.time())
+                    
+                    # Draw pose landmarks (shoulders and upper body only for less clutter)
+                    if draw_landmarks:
+                        # Draw only upper body connections
+                        connections_to_draw = [
+                            (self.mp_pose.PoseLandmark.LEFT_SHOULDER, self.mp_pose.PoseLandmark.RIGHT_SHOULDER),
+                            (self.mp_pose.PoseLandmark.LEFT_SHOULDER, self.mp_pose.PoseLandmark.LEFT_ELBOW),
+                            (self.mp_pose.PoseLandmark.RIGHT_SHOULDER, self.mp_pose.PoseLandmark.RIGHT_ELBOW),
+                            (self.mp_pose.PoseLandmark.LEFT_SHOULDER, self.mp_pose.PoseLandmark.LEFT_HIP),
+                            (self.mp_pose.PoseLandmark.RIGHT_SHOULDER, self.mp_pose.PoseLandmark.RIGHT_HIP),
+                        ]
+                        
+                        landmarks = pose_results.pose_landmarks.landmark
+                        h, w = frame.shape[:2]
+                        
+                        # Draw shoulder points
+                        for landmark_idx in [self.mp_pose.PoseLandmark.LEFT_SHOULDER, 
+                                            self.mp_pose.PoseLandmark.RIGHT_SHOULDER]:
+                            lm = landmarks[landmark_idx]
+                            if lm.visibility > 0.5:  # Only draw if visible
+                                cx, cy = int(lm.x * w), int(lm.y * h)
+                                cv2.circle(frame, (cx, cy), 5, (0, 255, 255), -1)  # Yellow circles
+                        
+                        # Draw connections
+                        for connection in connections_to_draw:
+                            start_lm = landmarks[connection[0]]
+                            end_lm = landmarks[connection[1]]
+                            
+                            if start_lm.visibility > 0.5 and end_lm.visibility > 0.5:
+                                start_point = (int(start_lm.x * w), int(start_lm.y * h))
+                                end_point = (int(end_lm.x * w), int(end_lm.y * h))
+                                cv2.line(frame, start_point, end_point, (0, 255, 255), 2)  # Yellow lines
             
             # === FATIGUE CALCULATION ===
             metrics['blink_rate'] = self.get_blink_rate()
@@ -517,6 +923,19 @@ class FatigueDetector:
         self.hand_covering_face_counter = 0
         self.fidget_counter = 0
         self.prev_hand_positions = None
+        self.shoulder_tilt_history.clear()
+        self.shoulder_forward_history.clear()
+        self.shoulder_raise_history.clear()
+        self.baseline_shoulder_height = None
+        self.poor_posture_counter = 0
+        self.poor_posture_timestamps.clear()
+        self.drinking_counter = 0
+        self.drinking_timestamps.clear()
+        self.hand_to_mouth_counter = 0
+        self.hand_to_mouth_timestamps.clear()
+        self.drinking_in_progress = False
+        self.drinking_start_time = None
+        self.last_drinking_end_time = 0
         self.fatigue_scores.clear()
         self.last_break_suggestion_time = 0
     
@@ -535,6 +954,16 @@ class FatigueDetector:
             stats['hand_covering_face_events'] = self.hand_covering_face_counter
             stats['fidget_events'] = self.fidget_counter
         
+        if config.DETECT_SHOULDERS:
+            stats['poor_posture_events'] = self.poor_posture_counter
+            stats['avg_shoulder_tilt'] = np.mean(list(self.shoulder_tilt_history)) if self.shoulder_tilt_history else 0
+            stats['avg_shoulder_forward'] = np.mean(list(self.shoulder_forward_history)) if self.shoulder_forward_history else 0
+        
+        if config.DETECT_DRINKING:
+            stats['total_drinks'] = self.drinking_counter
+            stats['avg_drinking_rate'] = self.get_drinking_rate()
+            stats['hand_to_mouth_events'] = self.hand_to_mouth_counter
+        
         return stats
     
     def __del__(self):
@@ -543,4 +972,6 @@ class FatigueDetector:
             self.face_mesh.close()
         if hasattr(self, 'hands') and self.hands:
             self.hands.close()
+        if hasattr(self, 'pose') and self.pose:
+            self.pose.close()
 

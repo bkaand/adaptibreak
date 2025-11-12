@@ -53,13 +53,50 @@ HAND_COVERING_FACE_THRESHOLD = 0.12  # Closer proximity
 # Fidgeting detection (hand movement)
 FIDGET_MOVEMENT_THRESHOLD = 0.05  # Movement between frames to count as fidgeting
 
+# ==================== SHOULDER POSTURE DETECTION ====================
+
+# Shoulder detection settings
+DETECT_SHOULDERS = True  # Enable/disable shoulder tracking
+MIN_POSE_DETECTION_CONFIDENCE = 0.7
+MIN_POSE_TRACKING_CONFIDENCE = 0.5
+
+# Shoulder tilt threshold (degrees) - indicates leaning/slouching
+SHOULDER_TILT_THRESHOLD = 10  # Angle difference between left and right shoulders
+
+# Shoulder forward/hunch threshold (normalized coordinates)
+SHOULDER_FORWARD_THRESHOLD = 0.08  # Distance shoulders are forward relative to hips
+
+# Shoulder raise threshold (indicates tension/stress)
+SHOULDER_RAISE_THRESHOLD = 0.05  # Height difference from baseline
+
+# ==================== DRINKING BEHAVIOR DETECTION ====================
+
+# Drinking detection settings
+DETECT_DRINKING = True  # Enable/disable drinking behavior tracking
+OBJECT_DETECTION_CONFIDENCE = 0.5  # Confidence threshold for object detection
+
+# Drinkware objects to detect (COCO dataset class IDs)
+DRINKWARE_CLASSES = ['cup', 'bottle']  # Can also detect 'wine glass', 'bowl'
+DRINKWARE_CLASS_IDS = [41, 39]  # COCO IDs: 41=cup, 39=bottle
+
+# Drinking gesture thresholds
+DRINK_TO_MOUTH_THRESHOLD = 0.15  # Distance from drinkware to mouth (normalized)
+DRINKING_DURATION_MIN = 1.0  # Minimum seconds for action to count as drinking
+DRINKING_DURATION_MAX = 10.0  # Maximum seconds for single drinking action
+
+# Drinking frequency analysis
+NORMAL_DRINKING_RATE = (2, 6)  # Normal: 2-6 drinks per hour
+HIGH_DRINKING_RATE = 10  # > 10 drinks/hour = excessive (may indicate restlessness)
+LOW_DRINKING_RATE = 1  # < 1 drink/hour = potential dehydration concern
+
 # ==================== FATIGUE SCORING ====================
 
-# Fatigue score calculation weights (adjusted for hand detection)
-WEIGHT_BLINK = 0.25
-WEIGHT_YAWN = 0.30
-WEIGHT_HEAD_POSE = 0.25
-WEIGHT_HAND_POSITION = 0.20  # New: hands near face/fidgeting
+# Fatigue score calculation weights (adjusted for hand and shoulder detection)
+WEIGHT_BLINK = 0.20
+WEIGHT_YAWN = 0.25
+WEIGHT_HEAD_POSE = 0.20
+WEIGHT_HAND_POSITION = 0.15  # Hands near face/fidgeting
+WEIGHT_SHOULDER_POSTURE = 0.20  # Shoulder slouching/hunching/tension
 
 # Fatigue threshold for break suggestion
 FATIGUE_SCORE_THRESHOLD = 0.6  # 0 to 1 scale

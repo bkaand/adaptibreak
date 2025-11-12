@@ -565,6 +565,22 @@ By clicking "I Consent" below, you indicate that:
             ttk.Label(sidebar, text="Fatigue Score:", font=('Helvetica', 9)).pack(pady=(10,0))
             self.fatigue_score_label = ttk.Label(sidebar, text="0.0", font=('Helvetica', 9))
             self.fatigue_score_label.pack()
+            
+            # Shoulder posture monitoring (if enabled)
+            if config.DETECT_SHOULDERS:
+                ttk.Separator(sidebar, orient='horizontal').pack(fill='x', pady=10)
+                ttk.Label(sidebar, text="Posture:", font=('Helvetica', 10, 'bold')).pack(pady=5)
+                self.posture_label = ttk.Label(sidebar, text="Good posture", font=('Helvetica', 9), foreground='green')
+                self.posture_label.pack()
+            
+            # Drinking behavior monitoring (if enabled)
+            if config.DETECT_DRINKING:
+                ttk.Separator(sidebar, orient='horizontal').pack(fill='x', pady=10)
+                ttk.Label(sidebar, text="Hydration:", font=('Helvetica', 10, 'bold')).pack(pady=5)
+                self.drinking_label = ttk.Label(sidebar, text="0 drinks", font=('Helvetica', 9))
+                self.drinking_label.pack()
+                self.drinking_rate_label = ttk.Label(sidebar, text="0.0 /hour", font=('Helvetica', 9), foreground='gray')
+                self.drinking_rate_label.pack()
         
         # Start with first flashcard
         self.display_flashcard()
@@ -633,6 +649,45 @@ By clicking "I Consent" below, you indicate that:
                 self.status_label.config(text="Moderate fatigue", foreground='orange')
             else:
                 self.status_label.config(text="Normal state", foreground='green')
+            
+            # Update shoulder posture status
+            if config.DETECT_SHOULDERS and hasattr(self, 'posture_label'):
+                # Check recent poor posture events
+                current_time = time.time()
+                recent_poor_posture = [t for t in self.fatigue_detector.poor_posture_timestamps if current_time - t <= 10]
+                
+                if len(recent_poor_posture) >= 5:  # 5+ events in last 10 seconds
+                    # Determine type of poor posture
+                    if len(self.fatigue_detector.shoulder_forward_history) > 0:
+                        avg_forward = sum(list(self.fatigue_detector.shoulder_forward_history)[-10:]) / min(10, len(self.fatigue_detector.shoulder_forward_history))
+                        avg_tilt = sum(list(self.fatigue_detector.shoulder_tilt_history)[-10:]) / min(10, len(self.fatigue_detector.shoulder_tilt_history))
+                        
+                        if avg_forward > config.SHOULDER_FORWARD_THRESHOLD:
+                            self.posture_label.config(text="Slouching detected", foreground='red')
+                        elif avg_tilt > config.SHOULDER_TILT_THRESHOLD:
+                            self.posture_label.config(text="Uneven shoulders", foreground='orange')
+                        else:
+                            self.posture_label.config(text="Poor posture", foreground='orange')
+                else:
+                    self.posture_label.config(text="Good posture", foreground='green')
+            
+            # Update drinking behavior status
+            if config.DETECT_DRINKING and hasattr(self, 'drinking_label'):
+                drink_count = self.fatigue_detector.drinking_counter
+                drink_rate = self.fatigue_detector.get_drinking_rate()
+                
+                self.drinking_label.config(text=f"{drink_count} drink{'s' if drink_count != 1 else ''}")
+                self.drinking_rate_label.config(text=f"{drink_rate:.1f} /hour")
+                
+                # Color code based on drinking rate
+                if config.LOW_DRINKING_RATE < drink_rate < config.NORMAL_DRINKING_RATE[0]:
+                    self.drinking_rate_label.config(foreground='orange')  # Low hydration
+                elif drink_rate > config.HIGH_DRINKING_RATE:
+                    self.drinking_rate_label.config(foreground='red')  # Excessive (restlessness)
+                elif config.NORMAL_DRINKING_RATE[0] <= drink_rate <= config.NORMAL_DRINKING_RATE[1]:
+                    self.drinking_rate_label.config(foreground='green')  # Normal
+                else:
+                    self.drinking_rate_label.config(foreground='gray')  # Not enough data
         
         # Continue updating
         self.root.after(1000, self.update_timer)

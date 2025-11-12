@@ -6,9 +6,11 @@ AdaptiBreak is an intelligent study break system that uses webcam-based biometri
 
 ## Features
 
-- 🎥 **Webcam-based Fatigue Detection**: Uses MediaPipe for facial landmark tracking
-- 😴 **Biometric Indicators**: Monitors blink frequency, yawning, and head posture
-- 👋 **Hand Position Detection**: Tracks hand-to-face behaviors (NEW!)
+- 🎥 **Webcam-based Fatigue Detection**: Uses MediaPipe for facial and body landmark tracking
+- 😴 **Biometric Indicators**: Monitors blink frequency, yawning, head posture, and shoulder posture
+- 👋 **Hand Position Detection**: Tracks hand-to-face behaviors
+- 💪 **Shoulder Posture Tracking**: Detects slouching, tension, and poor ergonomics
+- 💧 **Drinking Behavior Tracking**: Monitors hydration patterns and frequency ✨ NEW!
 - 🧠 **Adaptive Break Suggestions**: Intelligent break timing based on detected fatigue
 - ⏱️ **Pomodoro Comparison**: Includes traditional fixed-timer mode for research comparison
 - 📚 **Integrated Study Interface**: Flashcard-based learning with vocabulary testing
@@ -71,32 +73,37 @@ python main.py
 ## How It Works
 
 ```
-Webcam Input → MediaPipe Face Detection → Feature Extraction
-                                              ↓
-  Break Suggestion ← Fatigue Estimation ← (Blinks, Yawns, Head Tilt)
+Webcam Input → MediaPipe (Face + Hands + Pose) → Feature Extraction
+                                                      ↓
+Break Suggestion ← Fatigue Estimation ← (Blinks, Yawns, Head, Hands, Shoulders, Drinking)
 ```
 
-### Fatigue Indicators
+### Fatigue & Behavior Indicators
 
 - **Blink Frequency**: Abnormal blink rates (too fast or too slow)
 - **Yawning**: Detected through mouth aspect ratio changes
 - **Head Posture**: Forward lean or tilting indicating fatigue
-- **Hand Position**: Head resting on hands, face touching, fidgeting ✨ NEW!
+- **Hand Position**: Head resting on hands, face touching, fidgeting
+- **Shoulder Posture**: Slouching, uneven shoulders, tension
+- **Drinking Behavior**: Hydration patterns and frequency ✨ NEW!
 
 ## Project Structure
 
 ```
 adaptibreak/
-├── main.py                 # Main application entry point
-├── fatigue_detector.py     # MediaPipe-based fatigue detection
-├── study_app.py            # Study interface and flashcard system
-├── config.py               # Configuration and constants
-├── data_logger.py          # Session data logging
-├── evaluation.py           # SUS questionnaire and metrics
-├── flashcards.json         # Vocabulary flashcard dataset
-├── requirements.txt        # Python dependencies
-└── README.md              # This file
+├── main.py                    # Main application
+├── fatigue_detector.py        # Detection algorithms
+├── config.py                  # Settings & thresholds
+├── evaluation.py              # SUS questionnaire
+├── data_logger.py             # Session logging
+├── flashcards.json            # Study materials
+├── demo_fatigue_detector.py   # Quick test
+├── requirements.txt           # Dependencies
+├── README.md                  # This file
+└── FEATURES.md                # Detection features guide
 ```
+
+**For detailed feature documentation, see [FEATURES.md](FEATURES.md)**
 
 ## Data and Privacy
 
@@ -135,9 +142,11 @@ This is a **within-subjects study** comparing two conditions:
 - Try restarting the application
 
 ### Poor Detection Accuracy
-- Improve lighting conditions (face should be well-lit)
+- Improve lighting conditions (face and upper body should be well-lit)
 - Position yourself 50-80cm from the webcam
+- Ensure shoulders are visible in frame for posture detection
 - Avoid backlighting or harsh shadows
+- Wear contrasting clothing for better body landmark detection
 
 ### Performance Issues
 - Close other resource-intensive applications

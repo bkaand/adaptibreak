@@ -17,7 +17,9 @@ def main():
     print("\nInstructions:")
     print("  - Sit comfortably in front of your webcam")
     print("  - Ensure good lighting on your face")
-    print("  - The system will detect blinks, yawns, and head posture")
+    print("  - The system will detect blinks, yawns, head posture, shoulders, and drinking")
+    print("  - Make sure your shoulders are visible in the frame")
+    print("  - Try drinking from a cup/mug to test drinking detection")
     print("  - Press 'q' to quit")
     print("\nStarting in 3 seconds...")
     print("=" * 60)
@@ -111,6 +113,52 @@ def main():
                                (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, hand_color, 2)
                     y_offset += line_height
                 
+                # Shoulder posture indicators
+                if config.DETECT_SHOULDERS:
+                    shoulder_text = "Posture: "
+                    if metrics['shoulders_detected']:
+                        if metrics['poor_posture']:
+                            shoulder_text += "POOR"
+                            if metrics['shoulders_forward']:
+                                shoulder_text += " [SLOUCHING]"
+                            if metrics['shoulders_tilted']:
+                                shoulder_text += " [TILTED]"
+                            if metrics['shoulders_raised']:
+                                shoulder_text += " [TENSE]"
+                            shoulder_color = (0, 0, 255)  # Red for poor posture
+                        else:
+                            shoulder_text += "Good"
+                            shoulder_color = (0, 255, 0)  # Green for good posture
+                    else:
+                        shoulder_text += "Not detected"
+                        shoulder_color = (128, 128, 128)  # Gray when not detected
+                    
+                    cv2.putText(display_frame, shoulder_text, 
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, shoulder_color, 2)
+                    y_offset += line_height
+                
+                # Drinking behavior indicators
+                if config.DETECT_DRINKING:
+                    drinking_text = f"Drinks: {metrics['drinking_count']}"
+                    if metrics['drinking_in_progress']:
+                        drinking_text += " [DRINKING NOW]"
+                        drinking_color = (0, 255, 255)  # Cyan when drinking
+                    elif metrics['hand_to_mouth']:
+                        drinking_text += " [HAND TO MOUTH]"
+                        drinking_color = (0, 165, 255)  # Orange for gesture
+                    else:
+                        drinking_color = (255, 255, 255)  # White
+                    
+                    cv2.putText(display_frame, drinking_text, 
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, drinking_color, 2)
+                    y_offset += line_height
+                    
+                    # Drinking rate
+                    rate_text = f"Rate: {metrics['drinking_rate']:.1f} /hr"
+                    cv2.putText(display_frame, rate_text, 
+                               (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 2)
+                    y_offset += line_height
+                
                 fatigue_score = metrics['fatigue_score']
                 color = (0, 255, 0) if fatigue_score < 0.4 else (0, 165, 255) if fatigue_score < 0.6 else (0, 0, 255)
                 cv2.putText(display_frame, f"Fatigue: {fatigue_score:.2f}", 
@@ -174,6 +222,20 @@ def main():
         print(f"  Avg Blink Rate: {stats['avg_blink_rate']:.1f} per minute")
         print(f"  Avg Fatigue Score: {stats['avg_fatigue_score']:.3f}")
         print(f"  Max Fatigue Score: {stats['max_fatigue_score']:.3f}")
+        
+        if 'hand_near_face_events' in stats:
+            print(f"  Hand Near Face Events: {stats['hand_near_face_events']}")
+        
+        if 'poor_posture_events' in stats:
+            print(f"  Poor Posture Events: {stats['poor_posture_events']}")
+            print(f"  Avg Shoulder Tilt: {stats['avg_shoulder_tilt']:.2f}°")
+            print(f"  Avg Shoulder Forward: {stats['avg_shoulder_forward']:.3f}")
+        
+        if 'total_drinks' in stats:
+            print(f"  Total Drinks Detected: {stats['total_drinks']}")
+            print(f"  Avg Drinking Rate: {stats['avg_drinking_rate']:.1f} per hour")
+            print(f"  Hand-to-Mouth Gestures: {stats['hand_to_mouth_events']}")
+        
         print("=" * 60)
         print("\nThank you for testing!")
 
