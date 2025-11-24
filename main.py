@@ -550,9 +550,29 @@ By clicking "I Consent" below, you indicate that:
             sidebar = ttk.LabelFrame(main_frame, text="Fatigue Monitoring", padding=10)
             sidebar.pack(side='right', fill='y', padx=5, pady=5)
             
-            ttk.Label(sidebar, text="Status:", font=('Helvetica', 10, 'bold')).pack(pady=5)
+            # Calibration status indicator
+            ttk.Label(sidebar, text="System Status:", font=('Helvetica', 10, 'bold')).pack(pady=5)
+            self.calibration_label = ttk.Label(sidebar, text="Calibrating...", 
+                                              font=('Helvetica', 9, 'bold'), foreground='#FFA500')
+            self.calibration_label.pack(pady=5)
+            
+            self.calibration_progress_label = ttk.Label(sidebar, text="Please sit normally", 
+                                                       font=('Helvetica', 8, 'italic'), foreground='gray')
+            self.calibration_progress_label.pack(pady=2)
+            
+            ttk.Separator(sidebar, orient='horizontal').pack(fill='x', pady=10)
+            
+            ttk.Label(sidebar, text="Detection Status:", font=('Helvetica', 10, 'bold')).pack(pady=5)
             self.status_label = ttk.Label(sidebar, text="Monitoring...", font=('Helvetica', 9))
             self.status_label.pack(pady=5)
+            
+            # Fatigue indicator (visual alert)
+            self.fatigue_indicator = tk.Canvas(sidebar, width=100, height=30, bg='#f5f5f5', highlightthickness=0)
+            self.fatigue_indicator.pack(pady=10)
+            self.fatigue_indicator_id = self.fatigue_indicator.create_oval(10, 5, 30, 25, fill='green', outline='')
+            self.fatigue_indicator_text = self.fatigue_indicator.create_text(50, 15, text="Normal", 
+                                                                              font=('Helvetica', 9, 'bold'), 
+                                                                              fill='green')
             
             ttk.Label(sidebar, text="Blink Rate:", font=('Helvetica', 9)).pack(pady=(10,0))
             self.blink_label = ttk.Label(sidebar, text="0 /min", font=('Helvetica', 9))
@@ -634,6 +654,17 @@ By clicking "I Consent" below, you indicate that:
         
         # Update adaptive mode stats
         if self.session_mode == 'adaptive' and hasattr(self, 'status_label'):
+            # Update calibration status
+            if hasattr(self, 'calibration_label'):
+                if self.fatigue_detector.is_calibrating():
+                    progress = self.fatigue_detector.get_calibration_progress()
+                    self.calibration_label.config(text=f"Calibrating... {int(progress * 100)}%", 
+                                                 foreground='#FFA500')
+                    self.calibration_progress_label.config(text="Please sit normally")
+                else:
+                    self.calibration_label.config(text="✓ Calibration Complete", foreground='green')
+                    self.calibration_progress_label.config(text="Personalized tracking active")
+            
             blink_rate = self.fatigue_detector.get_blink_rate()
             yawn_count = self.fatigue_detector.yawn_counter
             fatigue_score = self.fatigue_detector.calculate_fatigue_score()
@@ -645,10 +676,20 @@ By clicking "I Consent" below, you indicate that:
             # Update status
             if fatigue_score > config.FATIGUE_SCORE_THRESHOLD:
                 self.status_label.config(text="High fatigue detected", foreground='red')
+                # Update fatigue indicator
+                if hasattr(self, 'fatigue_indicator'):
+                    self.fatigue_indicator.itemconfig(self.fatigue_indicator_id, fill='red')
+                    self.fatigue_indicator.itemconfig(self.fatigue_indicator_text, text="Fatigue!", fill='red')
             elif fatigue_score > 0.4:
                 self.status_label.config(text="Moderate fatigue", foreground='orange')
+                if hasattr(self, 'fatigue_indicator'):
+                    self.fatigue_indicator.itemconfig(self.fatigue_indicator_id, fill='orange')
+                    self.fatigue_indicator.itemconfig(self.fatigue_indicator_text, text="Tired", fill='orange')
             else:
                 self.status_label.config(text="Normal state", foreground='green')
+                if hasattr(self, 'fatigue_indicator'):
+                    self.fatigue_indicator.itemconfig(self.fatigue_indicator_id, fill='green')
+                    self.fatigue_indicator.itemconfig(self.fatigue_indicator_text, text="Normal", fill='green')
             
             # Update shoulder posture status
             if config.DETECT_SHOULDERS and hasattr(self, 'posture_label'):

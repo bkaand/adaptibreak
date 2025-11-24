@@ -11,6 +11,14 @@ import time
 import config
 import os
 
+# Try to import filterpy for Kalman filtering
+try:
+    from filterpy.kalman import KalmanFilter
+    KALMAN_AVAILABLE = True
+except ImportError:
+    KALMAN_AVAILABLE = False
+    print("Note: filterpy not available, using exponential moving average fallback")
+
 
 class FatigueDetector:
     """
@@ -19,6 +27,85 @@ class FatigueDetector:
     """
     
     def __init__(self):
+        # ============================================================
+        # KALMAN FILTERING FOR NOISE REDUCTION
+        # ============================================================
+        # Kalman filters smooth temporal noise from MediaPipe landmarks
+        # This improves real-time consistency of EAR, MAR, and posture metrics
+        self.kalman_available = KALMAN_AVAILABLE
+        
+        if self.kalman_available:
+            # EAR Kalman filter (dim_x=2: state=[value, velocity], dim_z=1: measurement=value)
+            self.kf_ear = KalmanFilter(dim_x=2, dim_z=1)
+            self.kf_ear.x = np.array([[0.3], [0.]])  # Initial state: [EAR≈0.3, velocity=0]
+            self.kf_ear.F = np.array([[1., 1.], [0., 1.]])  # State transition matrix
+            self.kf_ear.H = np.array([[1., 0.]])  # Measurement function
+            self.kf_ear.P *= 1000.  # Initial uncertainty
+            self.kf_ear.R = 0.01  # Measurement noise
+            self.kf_ear.Q = np.array([[0.0001, 0.], [0., 0.0001]])  # Process noise
+            
+            # MAR Kalman filter
+            self.kf_mar = KalmanFilter(dim_x=2, dim_z=1)
+            self.kf_mar.x = np.array([[0.2], [0.]])  # Initial state: [MAR≈0.2, velocity=0]
+            self.kf_mar.F = np.array([[1., 1.], [0., 1.]])
+            self.kf_mar.H = np.array([[1., 0.]])
+            self.kf_mar.P *= 1000.
+            self.kf_mar.R = 0.01
+            self.kf_mar.Q = np.array([[0.0001, 0.], [0., 0.0001]])
+            
+            # Head tilt Kalman filter
+            self.kf_head_tilt = KalmanFilter(dim_x=2, dim_z=1)
+            self.kf_head_tilt.x = np.array([[0.], [0.]])
+            self.kf_head_tilt.F = np.array([[1., 1.], [0., 1.]])
+            self.kf_head_tilt.H = np.array([[1., 0.]])
+            self.kf_head_tilt.P *= 1000.
+            self.kf_head_tilt.R = 0.05
+            self.kf_head_tilt.Q = np.array([[0.001, 0.], [0., 0.001]])
+            
+            # Head forward Kalman filter
+            self.kf_head_forward = KalmanFilter(dim_x=2, dim_z=1)
+            self.kf_head_forward.x = np.array([[0.], [0.]])
+            self.kf_head_forward.F = np.array([[1., 1.], [0., 1.]])
+            self.kf_head_forward.H = np.array([[1., 0.]])
+            self.kf_head_forward.P *= 1000.
+            self.kf_head_forward.R = 0.1
+            self.kf_head_forward.Q = np.array([[0.001, 0.], [0., 0.001]])
+        else:
+            # Fallback to exponential moving average
+            self.ema_ear = None
+            self.ema_mar = None
+            self.ema_head_tilt = None
+            self.ema_head_forward = None
+            self.ema_alpha = 0.3  # Smoothing factor
+        
+        # ============================================================
+        # ADAPTIVE PER-USER CALIBRATION
+        # ============================================================
+        # Personalize thresholds based on user's baseline during first ~10 seconds
+        self.calibrated = False
+        self.calibration_frames_needed = 150  # ~10 seconds at 15 FPS
+        self.calibration_frame_count = 0
+        
+        # Calibration buffers
+        self.ear_buffer = deque(maxlen=200)
+        self.mar_buffer = deque(maxlen=200)
+        self.head_tilt_buffer = deque(maxlen=200)
+        self.head_forward_buffer = deque(maxlen=200)
+        
+        # Adaptive thresholds (will be computed after calibration)
+        self.ear_baseline = None
+        self.ear_threshold = config.EAR_THRESHOLD  # Default until calibration
+        self.mar_baseline = None
+        self.mar_threshold = config.MAR_THRESHOLD  # Default until calibration
+        self.head_tilt_baseline = None
+        self.head_tilt_threshold = config.HEAD_TILT_THRESHOLD
+        self.head_forward_baseline = None
+        self.head_forward_threshold = config.HEAD_FORWARD_THRESHOLD
+        
+        # Online adaptation (gradual threshold updates)
+        self.online_adaptation_enabled = True
+        self.adaptation_rate = 0.001  # Very slow adaptation to avoid drift
+        
         # Initialize MediaPipe Face Mesh
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
@@ -123,6 +210,164 @@ class FatigueDetector:
             print("✓ Object detection model loaded successfully")
         else:
             raise FileNotFoundError("Object detection model files not found")
+    
+    # ============================================================
+    # KALMAN FILTERING METHODS
+    # ============================================================
+    
+    def kalman_update(self, kf, measurement):
+        """
+        Apply Kalman filter prediction and update steps.
+        Returns the smoothed value.
+        
+        Args:
+            kf: KalmanFilter object
+            measurement: Raw measured value (float)
+        
+        Returns:
+            Filtered/smoothed value (float)
+        """
+        if self.kalman_available:
+            # Prediction step
+            kf.predict()
+            
+            # Update step with measurement
+            kf.update(np.array([[measurement]]))
+            
+            # Return filtered state (position component only)
+            return float(kf.x[0, 0])
+        else:
+            # Fallback: exponential moving average
+            return measurement
+    
+    def ema_update(self, current_ema, new_value):
+        """
+        Exponential moving average fallback when filterpy is unavailable.
+        Provides simple temporal smoothing.
+        
+        Args:
+            current_ema: Current EMA value (None if first call)
+            new_value: New measurement
+        
+        Returns:
+            Updated EMA value
+        """
+        if current_ema is None:
+            return new_value
+        return self.ema_alpha * new_value + (1 - self.ema_alpha) * current_ema
+    
+    # ============================================================
+    # ADAPTIVE CALIBRATION METHODS
+    # ============================================================
+    
+    def update_calibration(self, ear, mar, head_tilt, head_forward):
+        """
+        Collect data for adaptive threshold calibration.
+        Called during the first ~10 seconds of detection.
+        
+        Args:
+            ear: Current eye aspect ratio
+            mar: Current mouth aspect ratio
+            head_tilt: Current head tilt angle
+            head_forward: Current head forward angle
+        """
+        if self.calibrated:
+            return
+        
+        # Add to calibration buffers
+        self.ear_buffer.append(ear)
+        self.mar_buffer.append(mar)
+        self.head_tilt_buffer.append(head_tilt)
+        self.head_forward_buffer.append(head_forward)
+        
+        self.calibration_frame_count += 1
+        
+        # Check if we have enough frames for calibration
+        if self.calibration_frame_count >= self.calibration_frames_needed:
+            self.compute_adaptive_thresholds()
+            self.calibrated = True
+            print("\n" + "="*60)
+            print("✓ CALIBRATION COMPLETE - Personalized thresholds applied")
+            print("="*60)
+            print(f"  EAR baseline: {self.ear_baseline:.4f}, threshold: {self.ear_threshold:.4f}")
+            print(f"  MAR baseline: {self.mar_baseline:.4f}, threshold: {self.mar_threshold:.4f}")
+            print(f"  Head tilt baseline: {self.head_tilt_baseline:.2f}°, threshold: {self.head_tilt_threshold:.2f}°")
+            print(f"  Head forward baseline: {self.head_forward_baseline:.2f}, threshold: {self.head_forward_threshold:.2f}")
+            print("="*60 + "\n")
+    
+    def compute_adaptive_thresholds(self):
+        """
+        Compute personalized thresholds based on calibration data.
+        Uses mean ± k*std to set detection thresholds.
+        """
+        # EAR threshold (blink detection)
+        # Lower EAR = closed eyes, so threshold is baseline - k*std
+        if len(self.ear_buffer) > 0:
+            ear_array = np.array(list(self.ear_buffer))
+            self.ear_baseline = np.mean(ear_array)
+            ear_std = np.std(ear_array)
+            self.ear_threshold = max(self.ear_baseline - 1.5 * ear_std, 0.15)  # Min threshold 0.15
+        
+        # MAR threshold (yawn detection)
+        # Higher MAR = open mouth, so threshold is baseline + k*std
+        if len(self.mar_buffer) > 0:
+            mar_array = np.array(list(self.mar_buffer))
+            self.mar_baseline = np.mean(mar_array)
+            mar_std = np.std(mar_array)
+            self.mar_threshold = self.mar_baseline + 1.5 * mar_std
+        
+        # Head tilt threshold
+        if len(self.head_tilt_buffer) > 0:
+            tilt_array = np.array(list(self.head_tilt_buffer))
+            self.head_tilt_baseline = np.mean(tilt_array)
+            tilt_std = np.std(tilt_array)
+            self.head_tilt_threshold = self.head_tilt_baseline + 1.2 * tilt_std
+        
+        # Head forward threshold
+        if len(self.head_forward_buffer) > 0:
+            forward_array = np.array(list(self.head_forward_buffer))
+            self.head_forward_baseline = np.mean(forward_array)
+            forward_std = np.std(forward_array)
+            self.head_forward_threshold = self.head_forward_baseline + 1.2 * forward_std
+    
+    def online_adapt_baselines(self, ear, mar):
+        """
+        Gradually adapt baselines over time to account for changing conditions.
+        Uses very slow update rate to avoid drift from fatigue states.
+        
+        Args:
+            ear: Current (filtered) EAR value
+            mar: Current (filtered) MAR value
+        """
+        if not self.calibrated or not self.online_adaptation_enabled:
+            return
+        
+        # Only adapt when values are close to baseline (not in extreme state)
+        if self.ear_baseline is not None:
+            if abs(ear - self.ear_baseline) < 0.05:  # Only adapt if close to normal
+                self.ear_baseline = (1 - self.adaptation_rate) * self.ear_baseline + self.adaptation_rate * ear
+        
+        if self.mar_baseline is not None:
+            if abs(mar - self.mar_baseline) < 0.1:
+                self.mar_baseline = (1 - self.adaptation_rate) * self.mar_baseline + self.adaptation_rate * mar
+    
+    def is_calibrating(self):
+        """
+        Check if system is currently in calibration phase.
+        
+        Returns:
+            Boolean indicating calibration status
+        """
+        return not self.calibrated
+    
+    def get_calibration_progress(self):
+        """
+        Get calibration progress as percentage.
+        
+        Returns:
+            Float between 0 and 1
+        """
+        return min(self.calibration_frame_count / self.calibration_frames_needed, 1.0)
     
     def calculate_eye_aspect_ratio(self, eye_landmarks):
         """
@@ -726,11 +971,21 @@ class FatigueDetector:
             
             left_ear = self.calculate_eye_aspect_ratio(left_eye)
             right_ear = self.calculate_eye_aspect_ratio(right_eye)
-            ear = (left_ear + right_ear) / 2.0
+            ear_raw = (left_ear + right_ear) / 2.0
+            
+            # Apply Kalman filtering to reduce noise
+            if self.kalman_available:
+                ear = self.kalman_update(self.kf_ear, ear_raw)
+            else:
+                # Fallback to exponential moving average
+                self.ema_ear = self.ema_update(self.ema_ear, ear_raw)
+                ear = self.ema_ear
+            
             metrics['ear'] = ear
             
-            # Detect blink
-            if ear < config.EAR_THRESHOLD:
+            # Detect blink using adaptive threshold (or default during calibration)
+            ear_threshold = self.ear_threshold if self.calibrated else config.EAR_THRESHOLD
+            if ear < ear_threshold:
                 self.blink_frames += 1
             else:
                 if self.blink_frames >= config.BLINK_CONSEC_FRAMES:
@@ -750,12 +1005,22 @@ class FatigueDetector:
                 [landmarks[17].x * w, landmarks[17].y * h]    # bottom-top
             ])
             
-            mar = self.calculate_mouth_aspect_ratio(mouth_points)
+            mar_raw = self.calculate_mouth_aspect_ratio(mouth_points)
+            
+            # Apply Kalman filtering to reduce noise
+            if self.kalman_available:
+                mar = self.kalman_update(self.kf_mar, mar_raw)
+            else:
+                # Fallback to exponential moving average
+                self.ema_mar = self.ema_update(self.ema_mar, mar_raw)
+                mar = self.ema_mar
+            
             metrics['mar'] = mar
             
-            # Detect yawn (with cooldown to avoid multiple detections of same yawn)
+            # Detect yawn using adaptive threshold (or default during calibration)
             current_time = time.time()
-            if mar > config.MAR_THRESHOLD:
+            mar_threshold = self.mar_threshold if self.calibrated else config.MAR_THRESHOLD
+            if mar > mar_threshold:
                 self.yawn_frames += 1
                 if self.yawn_frames >= config.YAWN_CONSEC_FRAMES:
                     # Check if enough time has passed since last yawn (cooldown: 2 seconds)
@@ -767,11 +1032,31 @@ class FatigueDetector:
                 self.yawn_frames = 0
             
             # === HEAD POSE ESTIMATION ===
-            tilt, forward = self.estimate_head_pose(landmarks, frame.shape)
+            tilt_raw, forward_raw = self.estimate_head_pose(landmarks, frame.shape)
+            
+            # Apply Kalman filtering to head pose
+            if self.kalman_available:
+                tilt = self.kalman_update(self.kf_head_tilt, tilt_raw)
+                forward = self.kalman_update(self.kf_head_forward, forward_raw)
+            else:
+                # Fallback to exponential moving average
+                self.ema_head_tilt = self.ema_update(self.ema_head_tilt, tilt_raw)
+                self.ema_head_forward = self.ema_update(self.ema_head_forward, forward_raw)
+                tilt = self.ema_head_tilt
+                forward = self.ema_head_forward
+            
             self.head_tilt_history.append(tilt)
             self.head_forward_history.append(forward)
             metrics['head_tilt'] = tilt
             metrics['head_forward'] = forward
+            
+            # === ADAPTIVE CALIBRATION ===
+            # Collect calibration data during first ~10 seconds
+            if not self.calibrated:
+                self.update_calibration(ear, mar, tilt, forward)
+            else:
+                # Optional: online adaptation for gradual baseline updates
+                self.online_adapt_baselines(ear, mar)
             
             # === HAND POSITION DETECTION ===
             if config.DETECT_HANDS and self.hands:
@@ -910,6 +1195,35 @@ class FatigueDetector:
     
     def reset(self):
         """Reset all detection states (e.g., for new session)."""
+        # Reset calibration
+        self.calibrated = False
+        self.calibration_frame_count = 0
+        self.ear_buffer.clear()
+        self.mar_buffer.clear()
+        self.head_tilt_buffer.clear()
+        self.head_forward_buffer.clear()
+        self.ear_baseline = None
+        self.ear_threshold = config.EAR_THRESHOLD
+        self.mar_baseline = None
+        self.mar_threshold = config.MAR_THRESHOLD
+        self.head_tilt_baseline = None
+        self.head_tilt_threshold = config.HEAD_TILT_THRESHOLD
+        self.head_forward_baseline = None
+        self.head_forward_threshold = config.HEAD_FORWARD_THRESHOLD
+        
+        # Reset Kalman filters or EMA
+        if self.kalman_available:
+            self.kf_ear.x = np.array([[0.3], [0.]])
+            self.kf_mar.x = np.array([[0.2], [0.]])
+            self.kf_head_tilt.x = np.array([[0.], [0.]])
+            self.kf_head_forward.x = np.array([[0.], [0.]])
+        else:
+            self.ema_ear = None
+            self.ema_mar = None
+            self.ema_head_tilt = None
+            self.ema_head_forward = None
+        
+        # Reset detection counters
         self.blink_counter = 0
         self.blink_frames = 0
         self.blink_timestamps.clear()
