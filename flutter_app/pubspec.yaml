@@ -1,0 +1,33 @@
+name: adaptibreak
+description: AdaptiBreak - Adaptive Study Break Assistant
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Material 3 design
+  material_design_icons_flutter: ^7.0.7296
+  
+  # HTTP client for backend communication
+  http: ^1.1.0
+  
+  # Desktop window management
+  window_manager: ^0.3.7
+  
+  # UI components
+  fl_chart: ^0.65.0
+  intl: ^0.18.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
