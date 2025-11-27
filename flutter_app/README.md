@@ -1,36 +1,26 @@
 # AdaptiBreak Flutter GUI
 
-Modern desktop interface for AdaptiBreak fatigue detection.
+Desktop interface for AdaptiBreak.
 
-## Setup
+## Run It
 
 ```bash
 flutter pub get
 flutter run -d macos  # or windows/linux
 ```
 
-## Features
+Make sure the Python backend is running first:
+```bash
+cd .. && python backend_api.py
+```
 
-- Material 3 design
-- Real-time fatigue monitoring
-- Passive floating bar
-- No alerts or popups
+Backend: http://127.0.0.1:8000
 
 ## Structure
 
 ```
 lib/
-├── main.dart              # Main window
-├── floating_bar.dart      # Floating bar component
+├── main.dart           # Main app
 └── services/
-    └── api_service.dart   # API client
+    └── api_service.dart   # Backend API calls
 ```
-
-## Backend Required
-
-Start the Python backend first:
-```bash
-cd .. && python backend_api.py
-```
-
-Backend runs at `http://127.0.0.1:8000`

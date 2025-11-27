@@ -1,175 +1,104 @@
-# AdaptiBreak: Biometric Feedback for Personalized Study Break Timing
+# AdaptiBreak
 
-**CS 449/549 – Human–Computer Interaction | Sabancı University – Fall 2025**
+CS 449/549 – Human-Computer Interaction, Fall 2025  
+Sabancı University
 
-AdaptiBreak is an intelligent study break system that uses webcam-based biometric detection to suggest optimal break times based on real-time fatigue indicators, rather than fixed intervals like traditional Pomodoro timers.
+Study break system that uses your webcam to detect when you're getting tired and suggests breaks based on that instead of fixed timers.
+
+## The Idea
+
+Pomodoro timers force you to take breaks every 25 minutes regardless of how you're feeling. Sometimes you're in the zone, sometimes you're already exhausted after 15 minutes. 
+
+This uses MediaPipe to watch for fatigue signs (blinks, yawns, posture) and suggests breaks when you actually need them. We're testing if it works better than regular timers.
 
 ## Features
 
-- 🎥 **Webcam-based Fatigue Detection**: Uses MediaPipe for facial and body landmark tracking
-- 😴 **Biometric Indicators**: Monitors blink frequency, yawning, head posture, and shoulder posture
-- 👋 **Hand Position Detection**: Tracks hand-to-face behaviors
-- 💪 **Shoulder Posture Tracking**: Detects slouching, tension, and poor ergonomics
-- 💧 **Drinking Behavior Tracking**: Monitors hydration patterns and frequency ✨ NEW!
-- 🧠 **Adaptive Break Suggestions**: Intelligent break timing based on detected fatigue
-- ⏱️ **Pomodoro Comparison**: Includes traditional fixed-timer mode for research comparison
-- 📚 **Integrated Study Interface**: Flashcard-based learning with vocabulary testing
-- 🔒 **Privacy-First**: All processing is local, no data leaves your device
-- 📊 **Research Metrics**: Built-in SUS questionnaire and performance tracking
+- Monitors blink rate, yawning, head/shoulder posture with MediaPipe
+- Suggests breaks when fatigue is detected
+- Traditional Pomodoro mode included for comparison
+- Built-in flashcard interface for the study
+- Everything runs locally, no cloud processing
 
-## System Requirements
+## Setup
 
-- Python 3.8 or higher
-- Webcam (built-in or external)
-- macOS, Windows, or Linux
-
-## Installation
-
-1. **Clone or navigate to the project directory:**
-   ```bash
-   cd /Users/kaan/Desktop/adaptibreak
-   ```
-
-2. **Create a virtual environment (recommended):**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## Usage
-
-### Running the Application
+Python 3.8+, webcam, macOS/Windows/Linux
 
 ```bash
+pip install -r requirements.txt
 python main.py
 ```
 
-### Study Modes
+### Flutter GUI (optional)
 
-1. **Fixed-Timer Mode (Pomodoro)**
-   - 25-minute study sessions
-   - 5-minute break intervals
-   - Traditional timer-based approach
+There's also a Flutter desktop interface:
 
-2. **Adaptive Mode**
-   - Dynamic break suggestions based on fatigue
-   - Real-time biometric monitoring
-   - Personalized to your cognitive state
+```bash
+flutter config --enable-macos-desktop
+cd flutter_app && flutter pub get && cd ..
+./run_flutter_app.sh
+```
 
-### Participant Instructions
+## Usage
 
-1. Position yourself in front of the webcam with good lighting
-2. Read and accept the consent form
-3. Complete the demographic questionnaire
-4. Study the flashcards (45 minutes)
-5. Take the vocabulary recall test (10 minutes)
-6. Fill out the usability survey (SUS + feedback)
+1. Sit in front of your webcam
+2. Choose Adaptive mode or Fixed timer (Pomodoro)
+3. Study the flashcards
+4. System suggests breaks when it detects fatigue
+5. Fill out the survey after
 
 ## How It Works
 
-```
-Webcam Input → MediaPipe (Face + Hands + Pose) → Feature Extraction
-                                                      ↓
-Break Suggestion ← Fatigue Estimation ← (Blinks, Yawns, Head, Hands, Shoulders, Drinking)
-```
+Monitors several fatigue indicators:
 
-### Fatigue & Behavior Indicators
+- **Blink rate** - Normal is 12-20/min, deviations suggest fatigue
+- **Yawning** - Detected via mouth aspect ratio  
+- **Head posture** - Forward lean, tilting
+- **Hand position** - Head resting, face touching
+- **Shoulder posture** - Slouching, uneven shoulders
 
-- **Blink Frequency**: Abnormal blink rates (too fast or too slow)
-- **Yawning**: Detected through mouth aspect ratio changes
-- **Head Posture**: Forward lean or tilting indicating fatigue
-- **Hand Position**: Head resting on hands, face touching, fidgeting
-- **Shoulder Posture**: Slouching, uneven shoulders, tension
-- **Drinking Behavior**: Hydration patterns and frequency ✨ NEW!
+These get combined into a fatigue score. When it stays high for 10+ seconds, break is suggested.
 
-## Project Structure
+## Files
 
 ```
-adaptibreak/
-├── main.py                    # Main application
-├── fatigue_detector.py        # Detection algorithms
-├── config.py                  # Settings & thresholds
-├── evaluation.py              # SUS questionnaire
-├── data_logger.py             # Session logging
-├── flashcards.json            # Study materials
-├── demo_fatigue_detector.py   # Quick test
-├── requirements.txt           # Dependencies
-├── README.md                  # This file
-└── FEATURES.md                # Detection features guide
+main.py                 - Main tkinter app
+backend_api.py          - FastAPI server for Flutter GUI
+fatigue_detector.py     - Detection algorithms
+config.py               - Settings and thresholds
+evaluation.py           - SUS questionnaire
+data_logger.py          - Session logging
+flashcards.json         - Study materials
+flutter_app/            - Desktop GUI (optional)
 ```
 
-**For detailed feature documentation, see [FEATURES.md](FEATURES.md)**
+## Privacy
 
-## Data and Privacy
+Everything processes locally. No frames saved or uploaded. Only logs anonymized metrics like timestamps and fatigue scores.
 
-- **Local Processing**: All webcam data is processed locally on your device
-- **No Recording**: Webcam frames are analyzed in real-time and immediately discarded
-- **Anonymous Data**: Only aggregated statistics are logged (no personal identifiers)
-- **Voluntary**: Participants can stop at any time without penalty
+## Study Design
 
-## Research Design
+Within-subjects study comparing adaptive vs fixed timer breaks.
 
-This is a **within-subjects study** comparing two conditions:
+Hypotheses:
+1. Adaptive breaks reduce perceived fatigue
+2. System achieves decent usability (SUS > 70)
 
-- **Hypothesis 1**: Adaptive breaks will reduce perceived fatigue
-- **Hypothesis 2**: The system will achieve high usability scores (SUS > 70)
-
-### Evaluation Metrics
-
-- 📝 **Performance**: Vocabulary recall test scores
-- 😓 **Fatigue**: Self-rated tiredness (1-5 scale)
-- 🎯 **Usability**: System Usability Scale (SUS)
-- 💬 **Qualitative**: User feedback on comfort and usefulness
-
-## Team Members
-
-- **Bilgekağan Durmaz** – Technical Lead & Implementation
-- **Cihat Bera Şimşek** – Research & Literature Review
-- **Aynur Aybüke Memiş** – Study Design & Data Analysis
-- **Mustafa Mert Yıldızbaş** – UI/UX Design & Testing
-- **Bora Urasoğlu** – Participant Coordination & Ethics
+Measuring: vocabulary recall, self-rated fatigue, usability scores, user feedback.
 
 ## Troubleshooting
 
-### Webcam Not Detected
-- Ensure your webcam is connected and not in use by other applications
-- Grant camera permissions when prompted
-- Try restarting the application
+**Webcam issues** - Check permissions, close other apps using camera
 
-### Poor Detection Accuracy
-- Improve lighting conditions (face and upper body should be well-lit)
-- Position yourself 50-80cm from the webcam
-- Ensure shoulders are visible in frame for posture detection
-- Avoid backlighting or harsh shadows
-- Wear contrasting clothing for better body landmark detection
+**Bad detection** - Better lighting, sit 50-80cm away, keep shoulders in frame
 
-### Performance Issues
-- Close other resource-intensive applications
-- Reduce webcam resolution in config.py if needed
-- Ensure your Python environment has proper GPU support
+**Lag** - Close other apps, lower webcam resolution in config.py
 
-## Citation
+## Technical Stack
 
-If you use this project in your research, please cite:
-
-```
-Durmaz, B., Şimşek, C. B., Memiş, A. A., Yıldızbaş, M. M., & Urasoğlu, B. (2025).
-AdaptiBreak: Biometric Feedback for Personalized Study Break Timing.
-CS 449/549 Human-Computer Interaction, Sabancı University.
-```
-
-## License
-
-This project is for academic purposes only. Created for CS 449/549 – Human-Computer Interaction course at Sabancı University, Fall 2025.
+OpenCV + MediaPipe for landmark detection, FastAPI backend, runs ~25-30 FPS.
 
 ## References
 
-- Lugaresi, C., et al. (2019). MediaPipe: A framework for perception pipelines. arXiv:1906.08172
-- Ariga, A., & Lleras, A. (2011). Brief and rare mental "breaks" keep you focused. Cognition, 118(3), 439–443
-- Cirillo, F. (2006). The Pomodoro Technique. https://francescocirillo.com
-
+Lugaresi et al. (2019). MediaPipe framework. arXiv:1906.08172  
+Ariga & Lleras (2011). Brief mental breaks. Cognition 118(3)  
+Cirillo (2006). The Pomodoro Technique
