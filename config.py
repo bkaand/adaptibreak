@@ -19,8 +19,8 @@ MIN_TRACKING_CONFIDENCE = 0.5
 # ==================== FATIGUE DETECTION THRESHOLDS ====================
 
 # Eye Aspect Ratio (EAR) for blink detection
-EAR_THRESHOLD = 0.23  # Below this is considered a blink (made slightly stricter)
-BLINK_CONSEC_FRAMES = 3  # Consecutive frames below threshold to count as blink (increased to reduce false positives)
+EAR_THRESHOLD = 0.25  # Below this is considered a blink (will be calibrated per-user)
+BLINK_CONSEC_FRAMES = 2  # Consecutive frames below threshold to count as blink
 
 # Blink frequency thresholds (blinks per minute)
 NORMAL_BLINK_MIN = 12
@@ -29,8 +29,8 @@ FATIGUE_BLINK_MIN = 5   # Too few blinks (staring/concentration fatigue)
 FATIGUE_BLINK_MAX = 30  # Too many blinks (eye strain)
 
 # Mouth Aspect Ratio (MAR) for yawn detection
-MAR_THRESHOLD = 0.95  # Above this is considered a yawn (EXTREMELY strict - only actual yawns)
-YAWN_CONSEC_FRAMES = 40  # Frames to confirm yawn (~1.3 seconds at 30fps - must sustain wide open mouth)
+MAR_THRESHOLD = 1.2  # Above this is considered a yawn (VERY strict - only wide open mouth)
+YAWN_CONSEC_FRAMES = 25  # Frames to confirm yawn (~1.7 seconds at 15fps - must sustain wide open mouth)
 
 # Head pose thresholds (in degrees)
 HEAD_TILT_THRESHOLD = 15  # Side tilt indicating fatigue
@@ -89,14 +89,35 @@ NORMAL_DRINKING_RATE = (2, 6)  # Normal: 2-6 drinks per hour
 HIGH_DRINKING_RATE = 10  # > 10 drinks/hour = excessive (may indicate restlessness)
 LOW_DRINKING_RATE = 1  # < 1 drink/hour = potential dehydration concern
 
+# ==================== PERCLOS SETTINGS ====================
+# PERCLOS = Percentage of Eye Closure - Standard drowsiness metric
+# Measures proportion of time eyes are closed over a time window
+
+PERCLOS_WINDOW_SECONDS = 60  # Time window for PERCLOS calculation (standard is 1 minute)
+PERCLOS_EYE_CLOSURE_THRESHOLD = 0.70  # EAR ratio below this = eye considered closed (70% closure)
+PERCLOS_DROWSY_THRESHOLD = 0.15  # PERCLOS > 15% indicates drowsiness
+PERCLOS_SEVERE_THRESHOLD = 0.30  # PERCLOS > 30% indicates severe drowsiness
+
+# ==================== MAHALANOBIS DISTANCE SETTINGS ====================
+# Mahalanobis distance measures multivariate deviation from baseline
+# Accounts for correlations between fatigue indicators
+
+MAHALANOBIS_FEATURES = ['ear', 'mar', 'head_tilt', 'head_forward', 'blink_rate']
+MAHALANOBIS_WINDOW_SIZE = 30  # Number of frames for rolling calculation
+MAHALANOBIS_ALERT_THRESHOLD = 3.0  # Distance > 3 sigma = significant deviation
+MAHALANOBIS_WARNING_THRESHOLD = 2.0  # Distance > 2 sigma = moderate deviation
+MAHALANOBIS_REGULARIZATION = 1e-6  # Regularization for covariance matrix stability
+
 # ==================== FATIGUE SCORING ====================
 
-# Fatigue score calculation weights (adjusted for hand and shoulder detection)
-WEIGHT_BLINK = 0.20
-WEIGHT_YAWN = 0.25
-WEIGHT_HEAD_POSE = 0.20
-WEIGHT_HAND_POSITION = 0.15  # Hands near face/fidgeting
-WEIGHT_SHOULDER_POSTURE = 0.20  # Shoulder slouching/hunching/tension
+# Fatigue score calculation weights (adjusted for PERCLOS and Mahalanobis)
+WEIGHT_BLINK = 0.15
+WEIGHT_YAWN = 0.20
+WEIGHT_HEAD_POSE = 0.15
+WEIGHT_HAND_POSITION = 0.10  # Hands near face/fidgeting
+WEIGHT_SHOULDER_POSTURE = 0.15  # Shoulder slouching/hunching/tension
+WEIGHT_PERCLOS = 0.15  # PERCLOS drowsiness indicator
+WEIGHT_MAHALANOBIS = 0.10  # Mahalanobis multivariate deviation
 
 # Fatigue threshold for break suggestion
 FATIGUE_SCORE_THRESHOLD = 0.6  # 0 to 1 scale

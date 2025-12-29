@@ -21,6 +21,20 @@ if ! command -v flutter &> /dev/null; then
     exit 1
 fi
 
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+    echo "📦 Creating virtual environment..."
+    python3 -m venv venv
+    echo "📦 Installing Python dependencies..."
+    source venv/bin/activate
+    pip install --upgrade pip setuptools wheel
+    pip install -r requirements.txt
+    deactivate
+fi
+
+# Activate virtual environment
+source venv/bin/activate
+
 # Check if Flutter dependencies are installed
 if [ ! -d "flutter_app/.dart_tool" ]; then
     echo "📦 Installing Flutter dependencies..."
@@ -34,6 +48,7 @@ cleanup() {
     echo ""
     echo "🛑 Shutting down..."
     kill $BACKEND_PID 2>/dev/null
+    deactivate
     exit 0
 }
 
@@ -41,7 +56,7 @@ trap cleanup SIGINT SIGTERM
 
 # Start Python backend
 echo "🚀 Starting Python backend..."
-python3 backend_api.py &
+python backend_api.py &
 BACKEND_PID=$!
 
 # Wait for backend to start

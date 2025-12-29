@@ -10,6 +10,7 @@ from collections import deque
 import time
 import config
 import os
+from scipy.spatial.distance import mahalanobis
 
 # Try to import filterpy for Kalman filtering
 try:
@@ -191,6 +192,25 @@ class FatigueDetector:
         self.fatigue_scores = deque(maxlen=60)  # Store last 60 seconds of scores
         self.last_break_suggestion_time = 0
         
+        # ============================================================
+        # PERCLOS (Percentage of Eye Closure) TRACKING
+        # ============================================================
+        # PERCLOS is a standard drowsiness metric measuring % of time eyes are closed
+        self.perclos_window = deque(maxlen=int(config.PERCLOS_WINDOW_SECONDS * 15))  # ~15 FPS
+        self.eye_closure_timestamps = deque(maxlen=1000)  # Track when eyes are closed
+        self.current_perclos = 0.0
+        
+        # ============================================================
+        # MAHALANOBIS DISTANCE TRACKING
+        # ============================================================
+        # Mahalanobis distance measures multivariate deviation from baseline
+        self.mahalanobis_baseline_data = []  # Calibration data for baseline
+        self.mahalanobis_mean = None  # Baseline mean vector
+        self.mahalanobis_cov_inv = None  # Inverse covariance matrix
+        self.mahalanobis_ready = False
+        self.current_mahalanobis = 0.0
+        self.mahalanobis_history = deque(maxlen=config.MAHALANOBIS_WINDOW_SIZE)
+        
         # Performance tracking
         self.frame_count = 0
         self.last_fps_time = time.time()
@@ -207,7 +227,7 @@ class FatigueDetector:
         
         if os.path.exists(model_path) and os.path.exists(config_path):
             self.object_detector = cv2.dnn.readNetFromCaffe(config_path, model_path)
-            print("✓ Object detection model loaded successfully")
+            print("[OK] Object detection model loaded successfully")
         else:
             raise FileNotFoundError("Object detection model files not found")
     
@@ -287,7 +307,7 @@ class FatigueDetector:
             self.compute_adaptive_thresholds()
             self.calibrated = True
             print("\n" + "="*60)
-            print("✓ CALIBRATION COMPLETE - Personalized thresholds applied")
+            print("[OK] CALIBRATION COMPLETE - Personalized thresholds applied")
             print("="*60)
             print(f"  EAR baseline: {self.ear_baseline:.4f}, threshold: {self.ear_threshold:.4f}")
             print(f"  MAR baseline: {self.mar_baseline:.4f}, threshold: {self.mar_threshold:.4f}")
@@ -301,20 +321,25 @@ class FatigueDetector:
         Uses mean ± k*std to set detection thresholds.
         """
         # EAR threshold (blink detection)
-        # Lower EAR = closed eyes, so threshold is baseline - k*std
+        # Lower EAR = closed eyes, so threshold is 80% of baseline
+        # This is more reliable than std-based as blinks are very quick
         if len(self.ear_buffer) > 0:
             ear_array = np.array(list(self.ear_buffer))
             self.ear_baseline = np.mean(ear_array)
             ear_std = np.std(ear_array)
-            self.ear_threshold = max(self.ear_baseline - 1.5 * ear_std, 0.15)  # Min threshold 0.15
+            # Use 80% of baseline as threshold - blinks typically drop EAR by 50%+
+            self.ear_threshold = self.ear_baseline * 0.80
+            print(f"  [DEBUG] EAR calibration: baseline={self.ear_baseline:.4f}, std={ear_std:.4f}, threshold={self.ear_threshold:.4f}")
         
         # MAR threshold (yawn detection)
-        # Higher MAR = open mouth, so threshold is baseline + k*std
+        # Higher MAR = open mouth, use baseline + 50% as threshold
         if len(self.mar_buffer) > 0:
             mar_array = np.array(list(self.mar_buffer))
             self.mar_baseline = np.mean(mar_array)
             mar_std = np.std(mar_array)
-            self.mar_threshold = self.mar_baseline + 1.5 * mar_std
+            # Yawn requires mouth to be 50% more open than baseline
+            self.mar_threshold = self.mar_baseline * 1.5
+            print(f"  [DEBUG] MAR calibration: baseline={self.mar_baseline:.4f}, std={mar_std:.4f}, threshold={self.mar_threshold:.4f}")
         
         # Head tilt threshold
         if len(self.head_tilt_buffer) > 0:
@@ -755,6 +780,215 @@ class FatigueDetector:
             return (len(recent_drinks) / time_span) * 3600  # Convert to per hour
         return 0
     
+    # ============================================================
+    # PERCLOS (Percentage of Eye Closure) METHODS
+    # ============================================================
+    
+    def update_perclos(self, ear):
+        """
+        Update PERCLOS calculation based on current EAR value.
+        
+        PERCLOS (Percentage of Eye Closure) is a standard drowsiness metric that
+        measures the proportion of time the eyes are closed (or nearly closed)
+        over a specified time window. Typically:
+        - PERCLOS > 15% indicates drowsiness
+        - PERCLOS > 30% indicates severe drowsiness
+        
+        Args:
+            ear: Current Eye Aspect Ratio value
+        """
+        current_time = time.time()
+        
+        # Determine if eyes are closed (EAR below closure threshold)
+        # Using relative threshold based on calibrated baseline
+        if self.ear_baseline is not None:
+            closure_threshold = self.ear_baseline * config.PERCLOS_EYE_CLOSURE_THRESHOLD
+        else:
+            closure_threshold = config.EAR_THRESHOLD * config.PERCLOS_EYE_CLOSURE_THRESHOLD
+        
+        eye_closed = ear < closure_threshold
+        
+        # Add to PERCLOS window (1 = closed, 0 = open)
+        self.perclos_window.append(1 if eye_closed else 0)
+        
+        # Track timestamps of eye closure for detailed analysis
+        if eye_closed:
+            self.eye_closure_timestamps.append(current_time)
+        
+        # Calculate PERCLOS as percentage of closed frames in window
+        if len(self.perclos_window) > 0:
+            self.current_perclos = sum(self.perclos_window) / len(self.perclos_window)
+    
+    def get_perclos(self):
+        """
+        Get current PERCLOS value.
+        
+        Returns:
+            Float between 0 and 1 representing percentage of eye closure
+        """
+        return self.current_perclos
+    
+    def get_perclos_score(self):
+        """
+        Convert PERCLOS value to fatigue score (0-1).
+        
+        Uses sigmoid-like mapping:
+        - Below drowsy threshold (0.15): low score
+        - Above severe threshold (0.30): high score
+        - Linear interpolation between
+        
+        Returns:
+            Float between 0 and 1
+        """
+        perclos = self.current_perclos
+        
+        if perclos < config.PERCLOS_DROWSY_THRESHOLD:
+            # Below drowsy threshold - minimal fatigue
+            return perclos / config.PERCLOS_DROWSY_THRESHOLD * 0.3
+        elif perclos < config.PERCLOS_SEVERE_THRESHOLD:
+            # Between drowsy and severe - moderate fatigue
+            range_size = config.PERCLOS_SEVERE_THRESHOLD - config.PERCLOS_DROWSY_THRESHOLD
+            progress = (perclos - config.PERCLOS_DROWSY_THRESHOLD) / range_size
+            return 0.3 + progress * 0.4
+        else:
+            # Above severe threshold - high fatigue
+            excess = perclos - config.PERCLOS_SEVERE_THRESHOLD
+            return min(0.7 + excess * 2, 1.0)
+    
+    # ============================================================
+    # MAHALANOBIS DISTANCE METHODS
+    # ============================================================
+    
+    def update_mahalanobis_baseline(self, feature_vector):
+        """
+        Collect data for Mahalanobis baseline during calibration.
+        
+        Args:
+            feature_vector: List of feature values [ear, mar, head_tilt, head_forward, blink_rate]
+        """
+        if self.calibrated:
+            return
+        
+        self.mahalanobis_baseline_data.append(feature_vector)
+    
+    def compute_mahalanobis_baseline(self):
+        """
+        Compute mean vector and inverse covariance matrix from calibration data.
+        Called after calibration period is complete.
+        """
+        if len(self.mahalanobis_baseline_data) < 10:
+            print("[WARN] Not enough data for Mahalanobis baseline")
+            return
+        
+        try:
+            # Convert to numpy array
+            data = np.array(self.mahalanobis_baseline_data)
+            
+            # Compute mean vector
+            self.mahalanobis_mean = np.mean(data, axis=0)
+            
+            # Compute covariance matrix with regularization for stability
+            cov_matrix = np.cov(data, rowvar=False)
+            
+            # Add regularization to diagonal (prevents singular matrix)
+            regularization = config.MAHALANOBIS_REGULARIZATION * np.eye(cov_matrix.shape[0])
+            cov_matrix += regularization
+            
+            # Compute inverse covariance matrix
+            self.mahalanobis_cov_inv = np.linalg.inv(cov_matrix)
+            
+            self.mahalanobis_ready = True
+            
+            print("\n" + "="*60)
+            print("[OK] MAHALANOBIS BASELINE COMPUTED")
+            print("="*60)
+            print(f"  Features: {config.MAHALANOBIS_FEATURES}")
+            print(f"  Baseline samples: {len(self.mahalanobis_baseline_data)}")
+            print(f"  Mean vector: {np.round(self.mahalanobis_mean, 4)}")
+            print("="*60 + "\n")
+            
+        except Exception as e:
+            print(f"[ERROR] Error computing Mahalanobis baseline: {e}")
+            self.mahalanobis_ready = False
+    
+    def calculate_mahalanobis_distance(self, feature_vector):
+        """
+        Calculate Mahalanobis distance from baseline for current observation.
+        
+        Mahalanobis distance measures how many standard deviations away
+        the current observation is from the baseline distribution,
+        accounting for correlations between features.
+        
+        Args:
+            feature_vector: Current feature values [ear, mar, head_tilt, head_forward, blink_rate]
+        
+        Returns:
+            Mahalanobis distance (float), or 0 if baseline not ready
+        """
+        if not self.mahalanobis_ready:
+            return 0.0
+        
+        try:
+            x = np.array(feature_vector)
+            distance = mahalanobis(x, self.mahalanobis_mean, self.mahalanobis_cov_inv)
+            
+            # Store in history
+            self.mahalanobis_history.append(distance)
+            self.current_mahalanobis = distance
+            
+            return distance
+            
+        except Exception as e:
+            # Fallback if calculation fails
+            return 0.0
+    
+    def get_mahalanobis_distance(self):
+        """
+        Get current Mahalanobis distance.
+        
+        Returns:
+            Float representing multivariate distance from baseline
+        """
+        return self.current_mahalanobis
+    
+    def get_mahalanobis_score(self):
+        """
+        Convert Mahalanobis distance to fatigue score (0-1).
+        
+        Uses thresholds based on chi-squared distribution:
+        - Distance < 2: Normal variation
+        - Distance 2-3: Moderate deviation (warning)
+        - Distance > 3: Significant deviation (alert)
+        
+        Returns:
+            Float between 0 and 1
+        """
+        distance = self.current_mahalanobis
+        
+        if distance < config.MAHALANOBIS_WARNING_THRESHOLD:
+            # Normal variation
+            return distance / config.MAHALANOBIS_WARNING_THRESHOLD * 0.3
+        elif distance < config.MAHALANOBIS_ALERT_THRESHOLD:
+            # Moderate deviation
+            range_size = config.MAHALANOBIS_ALERT_THRESHOLD - config.MAHALANOBIS_WARNING_THRESHOLD
+            progress = (distance - config.MAHALANOBIS_WARNING_THRESHOLD) / range_size
+            return 0.3 + progress * 0.4
+        else:
+            # Significant deviation
+            excess = distance - config.MAHALANOBIS_ALERT_THRESHOLD
+            return min(0.7 + excess * 0.1, 1.0)
+    
+    def get_avg_mahalanobis(self):
+        """
+        Get average Mahalanobis distance over recent history.
+        
+        Returns:
+            Float representing smoothed multivariate distance
+        """
+        if len(self.mahalanobis_history) == 0:
+            return 0.0
+        return np.mean(list(self.mahalanobis_history))
+    
     def calculate_fatigue_score(self):
         """
         Calculate overall fatigue score (0 to 1) based on multiple indicators.
@@ -834,13 +1068,21 @@ class FatigueDetector:
             else:
                 shoulder_score = max(tilt_score, forward_score, raise_score)
         
-        # Weighted combination
+        # PERCLOS score
+        perclos_score = self.get_perclos_score()
+        
+        # Mahalanobis distance score
+        mahalanobis_score = self.get_mahalanobis_score()
+        
+        # Weighted combination (includes PERCLOS and Mahalanobis)
         fatigue_score = (
             config.WEIGHT_BLINK * blink_score +
             config.WEIGHT_YAWN * yawn_score +
             config.WEIGHT_HEAD_POSE * head_pose_score +
             config.WEIGHT_HAND_POSITION * hand_score +
-            config.WEIGHT_SHOULDER_POSTURE * shoulder_score
+            config.WEIGHT_SHOULDER_POSTURE * shoulder_score +
+            config.WEIGHT_PERCLOS * perclos_score +
+            config.WEIGHT_MAHALANOBIS * mahalanobis_score
         )
         
         return np.clip(fatigue_score, 0, 1)
@@ -940,7 +1182,15 @@ class FatigueDetector:
             'drinking_in_progress': False,
             'drinkware_detected': False,
             'drinking_count': self.drinking_counter,
-            'drinking_rate': 0
+            'drinking_rate': 0,
+            # PERCLOS metrics
+            'perclos': 0.0,
+            'perclos_drowsy': False,
+            'perclos_severe': False,
+            # Mahalanobis metrics
+            'mahalanobis_distance': 0.0,
+            'mahalanobis_warning': False,
+            'mahalanobis_alert': False
         }
         
         if results.multi_face_landmarks:
@@ -991,6 +1241,7 @@ class FatigueDetector:
                 if self.blink_frames >= config.BLINK_CONSEC_FRAMES:
                     self.blink_counter += 1
                     self.blink_timestamps.append(time.time())
+                    print(f"[BLINK] #{self.blink_counter} detected (EAR={ear:.3f} < threshold={ear_threshold:.3f})")
                 self.blink_frames = 0
             
             # === YAWN DETECTION ===
@@ -1050,13 +1301,31 @@ class FatigueDetector:
             metrics['head_tilt'] = tilt
             metrics['head_forward'] = forward
             
+            # === PERCLOS UPDATE ===
+            # Update PERCLOS (Percentage of Eye Closure) tracking
+            self.update_perclos(ear)
+            
             # === ADAPTIVE CALIBRATION ===
             # Collect calibration data during first ~10 seconds
             if not self.calibrated:
                 self.update_calibration(ear, mar, tilt, forward)
+                
+                # Also collect Mahalanobis baseline data
+                blink_rate = self.get_blink_rate()
+                feature_vector = [ear, mar, tilt, forward, blink_rate]
+                self.update_mahalanobis_baseline(feature_vector)
             else:
                 # Optional: online adaptation for gradual baseline updates
                 self.online_adapt_baselines(ear, mar)
+                
+                # Compute Mahalanobis baseline if just finished calibration
+                if not self.mahalanobis_ready:
+                    self.compute_mahalanobis_baseline()
+                
+                # Calculate Mahalanobis distance from current state
+                blink_rate = self.get_blink_rate()
+                feature_vector = [ear, mar, tilt, forward, blink_rate]
+                self.calculate_mahalanobis_distance(feature_vector)
             
             # === HAND POSITION DETECTION ===
             if config.DETECT_HANDS and self.hands:
@@ -1183,6 +1452,16 @@ class FatigueDetector:
             # === FATIGUE CALCULATION ===
             metrics['blink_rate'] = self.get_blink_rate()
             metrics['fatigue_score'] = self.calculate_fatigue_score()
+            
+            # === PERCLOS METRICS ===
+            metrics['perclos'] = self.get_perclos()
+            metrics['perclos_drowsy'] = self.current_perclos > config.PERCLOS_DROWSY_THRESHOLD
+            metrics['perclos_severe'] = self.current_perclos > config.PERCLOS_SEVERE_THRESHOLD
+            
+            # === MAHALANOBIS METRICS ===
+            metrics['mahalanobis_distance'] = self.get_mahalanobis_distance()
+            metrics['mahalanobis_warning'] = self.current_mahalanobis > config.MAHALANOBIS_WARNING_THRESHOLD
+            metrics['mahalanobis_alert'] = self.current_mahalanobis > config.MAHALANOBIS_ALERT_THRESHOLD
         
         # Calculate FPS
         current_time = time.time()
@@ -1252,6 +1531,19 @@ class FatigueDetector:
         self.last_drinking_end_time = 0
         self.fatigue_scores.clear()
         self.last_break_suggestion_time = 0
+        
+        # Reset PERCLOS
+        self.perclos_window.clear()
+        self.eye_closure_timestamps.clear()
+        self.current_perclos = 0.0
+        
+        # Reset Mahalanobis
+        self.mahalanobis_baseline_data = []
+        self.mahalanobis_mean = None
+        self.mahalanobis_cov_inv = None
+        self.mahalanobis_ready = False
+        self.current_mahalanobis = 0.0
+        self.mahalanobis_history.clear()
     
     def get_summary_stats(self):
         """Get summary statistics for the session."""
@@ -1277,6 +1569,16 @@ class FatigueDetector:
             stats['total_drinks'] = self.drinking_counter
             stats['avg_drinking_rate'] = self.get_drinking_rate()
             stats['hand_to_mouth_events'] = self.hand_to_mouth_counter
+        
+        # PERCLOS statistics
+        stats['avg_perclos'] = self.get_perclos()
+        stats['max_perclos'] = max(list(self.perclos_window)) if self.perclos_window else 0
+        stats['perclos_drowsy_detected'] = self.current_perclos > config.PERCLOS_DROWSY_THRESHOLD
+        
+        # Mahalanobis statistics
+        stats['avg_mahalanobis'] = self.get_avg_mahalanobis()
+        stats['max_mahalanobis'] = max(list(self.mahalanobis_history)) if self.mahalanobis_history else 0
+        stats['mahalanobis_alerts'] = sum(1 for d in self.mahalanobis_history if d > config.MAHALANOBIS_ALERT_THRESHOLD)
         
         return stats
     

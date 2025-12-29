@@ -3,6 +3,7 @@ import 'package:window_manager/window_manager.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -108,6 +109,23 @@ class _MainWindowState extends State<MainWindow> {
     super.dispose();
   }
   
+  // Project root path
+  static const String projectRoot = '/Users/kaan/Desktop/adaptibreak-1';
+  
+  Future<void> launchFloatingBar() async {
+    try {
+      print('[INFO] Launching floating bar...');
+      
+      // Use 'open' to run the start script which handles everything
+      await Process.run(
+        'open',
+        ['-a', 'Terminal', '$projectRoot/start_floating_bar.sh'],
+      );
+    } catch (e) {
+      print('[ERROR] Could not launch floating bar: $e');
+    }
+  }
+  
   Future<void> checkBackendHealth() async {
     try {
       final response = await http.get(Uri.parse('$apiUrl/health'));
@@ -115,7 +133,7 @@ class _MainWindowState extends State<MainWindow> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('✓ Backend connected'),
+              content: Text('Backend connected'),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 2),
             ),
@@ -126,7 +144,7 @@ class _MainWindowState extends State<MainWindow> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('⚠ Backend not available: $e'),
+            content: Text('Backend not available: $e'),
             backgroundColor: Colors.orange,
             duration: const Duration(seconds: 3),
           ),
@@ -156,10 +174,13 @@ class _MainWindowState extends State<MainWindow> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('✓ Session started'),
+                content: Text('Session started'),
                 backgroundColor: Colors.green,
               ),
             );
+            
+            // Launch floating bar (which also launches camera preview)
+            launchFloatingBar();
           }
         } else {
           throw Exception(data['message']);
@@ -198,7 +219,7 @@ class _MainWindowState extends State<MainWindow> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('✓ Session stopped'),
+              content: Text('Session stopped'),
               backgroundColor: Colors.grey,
             ),
           );
@@ -256,12 +277,13 @@ class _MainWindowState extends State<MainWindow> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 700),
-          padding: const EdgeInsets.all(40),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+        child: SingleChildScrollView(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 700),
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
               // Header
               const Text(
                 'AdaptiBreak',
@@ -281,13 +303,13 @@ class _MainWindowState extends State<MainWindow> {
                 ),
               ),
               
-              const SizedBox(height: 60),
+              const SizedBox(height: 32),
               
               // Main card
               Card(
                 elevation: 4,
                 child: Container(
-                  padding: const EdgeInsets.all(40),
+                  padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
                       // Status indicator
@@ -408,7 +430,7 @@ class _MainWindowState extends State<MainWindow> {
                 ),
               ),
               
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
               
               // Control buttons
               Row(
@@ -449,7 +471,7 @@ class _MainWindowState extends State<MainWindow> {
                 ],
               ),
               
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
               
               // Footer info
               Container(
@@ -481,6 +503,7 @@ class _MainWindowState extends State<MainWindow> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );
